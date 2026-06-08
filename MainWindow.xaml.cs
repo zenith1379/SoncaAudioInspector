@@ -20,6 +20,21 @@ namespace SoncaAudioInspector
         public double RecordingGain { get; set; } = 100;
         public double FreqTolerance { get; set; } = 3.0;
         public double ThdLimit { get; set; } = 0.5;
+        public bool UseUsbPlayback { get; set; } = true;
+    }
+
+    public class DeviceItem
+    {
+        public MMDevice Device { get; set; }
+        public string DisplayName { get; set; }
+
+        public DeviceItem(MMDevice device, string displayName)
+        {
+            Device = device;
+            DisplayName = displayName;
+        }
+
+        public override string ToString() => DisplayName;
     }
 
     public partial class MainWindow : Window
@@ -80,6 +95,8 @@ namespace SoncaAudioInspector
                         SliderRecordingGain.Value = config.RecordingGain;
                         TxtFreqTolerance.Text = config.FreqTolerance.ToString("F1");
                         TxtThdLimit.Text = config.ThdLimit.ToString("F2");
+                        RadioUsbPlayback.IsChecked = config.UseUsbPlayback;
+                        RadioBtPlayback.IsChecked = !config.UseUsbPlayback;
 
                         // Update initial engine values
                         _audioEngine.PlaybackVolume = config.PlaybackVolume / 100.0;
@@ -99,7 +116,8 @@ namespace SoncaAudioInspector
                     PlaybackVolume = SliderPlaybackVolume.Value,
                     RecordingGain = SliderRecordingGain.Value,
                     FreqTolerance = double.TryParse(TxtFreqTolerance.Text, out double ft) ? ft : 3.0,
-                    ThdLimit = double.TryParse(TxtThdLimit.Text, out double tl) ? tl : 0.5
+                    ThdLimit = double.TryParse(TxtThdLimit.Text, out double tl) ? tl : 0.5,
+                    UseUsbPlayback = RadioUsbPlayback.IsChecked == true
                 };
                 string json = JsonSerializer.Serialize(config);
                 string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -114,6 +132,7 @@ namespace SoncaAudioInspector
             {
                 // Clear combo boxes
                 ComboPlayback.Items.Clear();
+                ComboBluetooth.Items.Clear();
                 ComboRecording.Items.Clear();
 
                 var playbackDevs = _audioEngine.GetPlaybackDevices();
@@ -123,43 +142,82 @@ namespace SoncaAudioInspector
 
                 foreach (var d in playbackDevs) 
                 {
-                    ComboPlayback.Items.Add(d);
-                    AppendLog("Device", $"Playback Out Found: {d.FriendlyName}");
+                    bool isBluetooth = d.FriendlyName.IndexOf("Bluetooth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Hands-Free", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Wireless", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Stereo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("BTH", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    string displayName = isBluetooth ? $"[BT] {d.FriendlyName}" : $"[USB/Wired] {d.FriendlyName}";
+
+                    if (!isBluetooth)
+                    {
+                        ComboPlayback.Items.Add(new DeviceItem(d, displayName));
+                    }
+                    else
+                    {
+                        ComboBluetooth.Items.Add(new DeviceItem(d, displayName));
+                    }
+                    AppendLog("Device", $"Playback Out Found: {d.FriendlyName} {(isBluetooth ? "[Bluetooth]" : "[Wired/USB]")}");
                 }
                 foreach (var d in recordingDevs) 
                 {
-                    ComboRecording.Items.Add(d);
+                    bool isBluetooth = d.FriendlyName.IndexOf("Bluetooth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Hands-Free", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Wireless", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("Stereo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       d.FriendlyName.IndexOf("BTH", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    string displayName = isBluetooth ? $"[BT] {d.FriendlyName}" : $"[USB/Wired] {d.FriendlyName}";
+
+                    ComboRecording.Items.Add(new DeviceItem(d, displayName));
                     AppendLog("Device", $"Recording In Found: {d.FriendlyName}");
                 }
 
                 // Auto select target devices from the same list instances
-                var autoPlayback = playbackDevs.FirstOrDefault(d => 
-                    d.FriendlyName.IndexOf("MI_LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("MI_SAM", StringComparison.OrdinalIgnoreCase) >= 0);
+                var autoPlayback = ComboPlayback.Items.Cast<DeviceItem>().FirstOrDefault(item => 
+                    item.Device.FriendlyName.IndexOf("MI_LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.Device.FriendlyName.IndexOf("MI LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.Device.FriendlyName.IndexOf("MI_SAM", StringComparison.OrdinalIgnoreCase) >= 0);
 
-                var autoRecording = recordingDevs.FirstOrDefault(d => 
-                    d.FriendlyName.IndexOf("SONCA", StringComparison.OrdinalIgnoreCase) >= 0);
+                var autoBluetooth = ComboBluetooth.Items.Cast<DeviceItem>().FirstOrDefault(item => 
+                    item.Device.FriendlyName.IndexOf("MI_LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.Device.FriendlyName.IndexOf("MI LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.Device.FriendlyName.IndexOf("MI_SAM", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                var autoRecording = ComboRecording.Items.Cast<DeviceItem>().FirstOrDefault(item => 
+                    item.Device.FriendlyName.IndexOf("SONCA", StringComparison.OrdinalIgnoreCase) >= 0);
 
                 if (autoPlayback != null) 
                 {
                     ComboPlayback.SelectedItem = autoPlayback;
-                    AppendLog("AutoSelect", $"Matched Output: {autoPlayback.FriendlyName}");
+                    AppendLog("AutoSelect", $"Matched Output: {autoPlayback.Device.FriendlyName}");
                 }
                 else if (ComboPlayback.Items.Count > 0) 
                 {
                     ComboPlayback.SelectedIndex = 0;
-                    AppendLog("AutoSelect", $"Fallback Output (No MI_LCD/MI_SAM found): {((MMDevice)ComboPlayback.SelectedItem).FriendlyName}");
+                    AppendLog("AutoSelect", $"Fallback Output (No MI_LCD/MI_SAM found): {((DeviceItem)ComboPlayback.SelectedItem).Device.FriendlyName}");
+                }
+
+                if (autoBluetooth != null) 
+                {
+                    ComboBluetooth.SelectedItem = autoBluetooth;
+                    AppendLog("AutoSelect", $"Matched Bluetooth: {autoBluetooth.Device.FriendlyName}");
+                }
+                else if (ComboBluetooth.Items.Count > 0) 
+                {
+                    ComboBluetooth.SelectedIndex = 0;
                 }
 
                 if (autoRecording != null) 
                 {
                     ComboRecording.SelectedItem = autoRecording;
-                    AppendLog("AutoSelect", $"Matched Input: {autoRecording.FriendlyName}");
+                    AppendLog("AutoSelect", $"Matched Input: {autoRecording.Device.FriendlyName}");
                 }
                 else if (ComboRecording.Items.Count > 0) 
                 {
                     ComboRecording.SelectedIndex = 0;
-                    AppendLog("AutoSelect", $"Fallback Input (No SONCA found): {((MMDevice)ComboRecording.SelectedItem).FriendlyName}");
+                    AppendLog("AutoSelect", $"Fallback Input (No SONCA found): {((DeviceItem)ComboRecording.SelectedItem).Device.FriendlyName}");
                 }
 
                 AppendLog("System", "Device discovery finished.");
@@ -351,8 +409,10 @@ namespace SoncaAudioInspector
             if (double.TryParse(TxtThdLimit.Text, out double thdLim))
                 _testRunner.ThdLimitPercent = thdLim;
 
-            var playbackDevice = ComboPlayback.SelectedItem as MMDevice;
-            var recordingDevice = ComboRecording.SelectedItem as MMDevice;
+            var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
+            var btDevice = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
+            var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDevice : btDevice;
+            var recordingDevice = (ComboRecording.SelectedItem as DeviceItem)?.Device;
 
             await _testRunner.RunTestAsync(playbackDevice, recordingDevice);
         }
@@ -387,8 +447,10 @@ namespace SoncaAudioInspector
             BtnDetect.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
 
-            var playbackDevice = ComboPlayback.SelectedItem as MMDevice;
-            var recordingDevice = ComboRecording.SelectedItem as MMDevice;
+            var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
+            var btDevice = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
+            var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDevice : btDevice;
+            var recordingDevice = (ComboRecording.SelectedItem as DeviceItem)?.Device;
 
             await _testRunner.RunNoiseTestAsync(playbackDevice, recordingDevice);
 

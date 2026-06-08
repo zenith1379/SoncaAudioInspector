@@ -190,54 +190,89 @@
             <Border Grid.Column="0" Background="#121214" BorderBrush="#27272A" BorderThickness="0,0,1,0" Padding="20">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <!-- Device Selection Group -->
+                        <!-- AUDIO ROUTING SETUP -->
                         <TextBlock Text="AUDIO ROUTING SETUP" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
 
-                        <TextBlock Text="Playback Out (MI_LCD / MI_SAM)" FontSize="12" Foreground="#A1A1AA" Margin="0,0,0,6"/>
-                        <ComboBox Name="ComboPlayback" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="FriendlyName" Margin="0,0,0,10" Height="35">
-                            <ComboBox.Resources>
-                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
-                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-                                <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
-                                <Style TargetType="ComboBoxItem">
-                                    <Setter Property="Background" Value="#18181B"/>
-                                    <Setter Property="Foreground" Value="White"/>
-                                </Style>
-                            </ComboBox.Resources>
-                        </ComboBox>
+                        <!-- PLAYBACK OUT REGION -->
+                        <Border Background="#1A1A1E" CornerRadius="6" Padding="12" Margin="0,0,0,15" BorderBrush="#27272A" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="PLAYBACK OUT" FontSize="11" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,10"/>
 
-                        <Grid Margin="0,0,0,6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Playback Volume" FontSize="11" Foreground="#71717A"/>
-                            <TextBlock Name="LblPlaybackVolume" Grid.Column="1" Text="80%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
-                        </Grid>
-                        <Slider Name="SliderPlaybackVolume" Minimum="0" Maximum="100" Value="80" ValueChanged="SliderPlaybackVolume_ValueChanged" Margin="0,0,0,15"/>
+                                <!-- USB Playback -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <RadioButton Name="RadioUsbPlayback" IsChecked="True" GroupName="PlaybackSource" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="USB Playback Out (MI_LCD / MI_SAM)" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <ComboBox Name="ComboPlayback" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,10" Height="35">
+                                    <ComboBox.Resources>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
+                                        <Style TargetType="ComboBoxItem">
+                                            <Setter Property="Background" Value="#18181B"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </Style>
+                                    </ComboBox.Resources>
+                                </ComboBox>
 
-                        <TextBlock Text="Recording In (SONCA)" FontSize="12" Foreground="#A1A1AA" Margin="0,0,0,6"/>
-                        <ComboBox Name="ComboRecording" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="FriendlyName" Margin="0,0,0,10" Height="35">
-                            <ComboBox.Resources>
-                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
-                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-                                <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
-                                <Style TargetType="ComboBoxItem">
-                                    <Setter Property="Background" Value="#18181B"/>
-                                    <Setter Property="Foreground" Value="White"/>
-                                </Style>
-                            </ComboBox.Resources>
-                        </ComboBox>
+                                <!-- Bluetooth Playback -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <RadioButton Name="RadioBtPlayback" GroupName="PlaybackSource" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="Bluetooth Playback Out" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <ComboBox Name="ComboBluetooth" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,12" Height="35">
+                                    <ComboBox.Resources>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
+                                        <Style TargetType="ComboBoxItem">
+                                            <Setter Property="Background" Value="#18181B"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </Style>
+                                    </ComboBox.Resources>
+                                </ComboBox>
 
-                        <Grid Margin="0,0,0,6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Recording Gain" FontSize="11" Foreground="#71717A"/>
-                            <TextBlock Name="LblRecordingGain" Grid.Column="1" Text="100%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
-                        </Grid>
-                        <Slider Name="SliderRecordingGain" Minimum="0" Maximum="200" Value="100" ValueChanged="SliderRecordingGain_ValueChanged" Margin="0,0,0,20"/>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Playback Volume" FontSize="11" Foreground="#71717A"/>
+                                    <TextBlock Name="LblPlaybackVolume" Grid.Column="1" Text="80%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
+                                </Grid>
+                                <Slider Name="SliderPlaybackVolume" Minimum="0" Maximum="100" Value="80" ValueChanged="SliderPlaybackVolume_ValueChanged" Margin="0,0,0,5"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- RECORDING IN REGION -->
+                        <Border Background="#1A1A1E" CornerRadius="6" Padding="12" Margin="0,0,0,15" BorderBrush="#27272A" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="RECORDING IN" FontSize="11" FontWeight="Bold" Foreground="#3B82F6" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Recording In (SONCA)" FontSize="11" Foreground="#A1A1AA" Margin="0,0,0,4"/>
+                                <ComboBox Name="ComboRecording" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,12" Height="35">
+                                    <ComboBox.Resources>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
+                                        <Style TargetType="ComboBoxItem">
+                                            <Setter Property="Background" Value="#18181B"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </Style>
+                                    </ComboBox.Resources>
+                                </ComboBox>
+
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Recording Gain" FontSize="11" Foreground="#71717A"/>
+                                    <TextBlock Name="LblRecordingGain" Grid.Column="1" Text="100%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
+                                </Grid>
+                                <Slider Name="SliderRecordingGain" Minimum="0" Maximum="200" Value="100" ValueChanged="SliderRecordingGain_ValueChanged" Margin="0,0,0,5"/>
+                            </StackPanel>
+                        </Border>
 
                         <!-- Test Configuration Limits -->
                         <TextBlock Text="SPECIFICATION LIMITS" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>

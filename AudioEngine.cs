@@ -78,22 +78,66 @@ namespace SoncaAudioInspector
 
             // Setup recording
             _wasapiCapture = new WasapiCapture(recordingDevice);
-            _wasapiCapture.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
-            _wasapiCapture.ShareMode = AudioClientShareMode.Shared;
+            // Use the actual device format (usually 2 channels, 48000Hz) to prevent Windows shared mode resampler bugs
+            var deviceFormat = _wasapiCapture.WaveFormat;
+            int devChannels = deviceFormat.Channels;
             
             _wasapiCapture.DataAvailable += (s, e) =>
             {
                 lock (_lock)
                 {
-                    int sampleCount = e.BytesRecorded / 4;
-                    float[] buffer = new float[sampleCount];
-                    for (int i = 0; i < sampleCount; i++)
+                    // Convert raw bytes to float samples based on actual device format
+                    int bytesPerSample = deviceFormat.BitsPerSample / 8;
+                    int totalSamples = e.BytesRecorded / bytesPerSample;
+                    int frameCount = totalSamples / devChannels;
+
+                    float[] monoBuffer = new float[frameCount];
+
+                    if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat)
                     {
-                        // Apply recording gain digitally
-                        buffer[i] = (float)(BitConverter.ToSingle(e.Buffer, i * 4) * RecordingGain);
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                int byteOffset = (i * devChannels + c) * 4;
+                                mixedSample += BitConverter.ToSingle(e.Buffer, byteOffset);
+                            }
+                            // Average of channels and apply gain
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
                     }
-                    _recordedSamples.AddRange(buffer);
-                    realTimeRecordedCallback?.Invoke(buffer);
+                    else if (deviceFormat.Encoding == WaveFormatEncoding.Pcm && deviceFormat.BitsPerSample == 16)
+                    {
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                int byteOffset = (i * devChannels + c) * 2;
+                                short val = BitConverter.ToInt16(e.Buffer, byteOffset);
+                                mixedSample += val / 32768.0f;
+                            }
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: Read using WaveBuffer
+                        var waveBuffer = new WaveBuffer(e.Buffer);
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                mixedSample += waveBuffer.FloatBuffer[i * devChannels + c];
+                            }
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
+                    }
+
+                    _recordedSamples.AddRange(monoBuffer);
+                    realTimeRecordedCallback?.Invoke(monoBuffer);
                 }
             };
 
@@ -176,20 +220,61 @@ namespace SoncaAudioInspector
 
             // Setup recording
             _wasapiCapture = new WasapiCapture(recordingDevice);
-            _wasapiCapture.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
-            _wasapiCapture.ShareMode = AudioClientShareMode.Shared;
+            var deviceFormat = _wasapiCapture.WaveFormat;
+            int devChannels = deviceFormat.Channels;
             
             _wasapiCapture.DataAvailable += (s, e) =>
             {
                 lock (_lock)
                 {
-                    int sampleCount = e.BytesRecorded / 4;
-                    float[] buffer = new float[sampleCount];
-                    for (int i = 0; i < sampleCount; i++)
+                    int bytesPerSample = deviceFormat.BitsPerSample / 8;
+                    int totalSamples = e.BytesRecorded / bytesPerSample;
+                    int frameCount = totalSamples / devChannels;
+
+                    float[] monoBuffer = new float[frameCount];
+
+                    if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat)
                     {
-                        buffer[i] = (float)(BitConverter.ToSingle(e.Buffer, i * 4) * RecordingGain);
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                int byteOffset = (i * devChannels + c) * 4;
+                                mixedSample += BitConverter.ToSingle(e.Buffer, byteOffset);
+                            }
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
                     }
-                    _recordedSamples.AddRange(buffer);
+                    else if (deviceFormat.Encoding == WaveFormatEncoding.Pcm && deviceFormat.BitsPerSample == 16)
+                    {
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                int byteOffset = (i * devChannels + c) * 2;
+                                short val = BitConverter.ToInt16(e.Buffer, byteOffset);
+                                mixedSample += val / 32768.0f;
+                            }
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
+                    }
+                    else
+                    {
+                        var waveBuffer = new WaveBuffer(e.Buffer);
+                        for (int i = 0; i < frameCount; i++)
+                        {
+                            float mixedSample = 0f;
+                            for (int c = 0; c < devChannels; c++)
+                            {
+                                mixedSample += waveBuffer.FloatBuffer[i * devChannels + c];
+                            }
+                            monoBuffer[i] = (float)((mixedSample / devChannels) * RecordingGain);
+                        }
+                    }
+
+                    _recordedSamples.AddRange(monoBuffer);
                 }
             };
 
