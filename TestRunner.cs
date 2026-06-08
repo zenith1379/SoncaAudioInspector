@@ -103,7 +103,7 @@ namespace SoncaAudioInspector
 
             Dictionary<double, double> rawDbResults = new Dictionary<double, double>();
 
-            double toneDuration = 0.35; // 350ms per tone
+            double toneDuration = 0.8; // 800ms per tone to completely clear USB buffer start latency
             bool freqResponsePass = true;
 
             foreach (var freq in sweepFrequencies)
@@ -116,11 +116,20 @@ namespace SoncaAudioInspector
                 float[] recorded = await _audioEngine.PlayAndRecordAsync(
                     playbackDevice, recordingDevice, SignalType.Sine, freq, toneDuration);
 
-                // Use the last 50% of the recorded buffer to let the analog filters and AD/DA convertors settle
-                int startOffset = recorded.Length / 2;
-                int analyzeCount = recorded.Length - startOffset;
+                // Detect clipping
+                float maxSample = recorded.Length > 0 ? recorded.Select(Math.Abs).Max() : 0f;
+                if (maxSample > 0.95f)
+                {
+                    OnLogMessage?.Invoke("Warning", "CRITICAL: Input clipping detected! Lower Playback Volume or Recording Gain.");
+                }
 
-                double rms = DspProcessor.CalculateRms(recorded, startOffset, analyzeCount);
+                // Analyze the last 200ms of the 800ms window where audio is guaranteed to be fully settled and running
+                int sampleRate = 48000;
+                int analyzeCount = (int)(sampleRate * 0.2); // 200ms
+                int startOffset = Math.Max(0, recorded.Length - analyzeCount);
+                int countToAnalyze = Math.Min(analyzeCount, recorded.Length - startOffset);
+
+                double rms = DspProcessor.CalculateRms(recorded, startOffset, countToAnalyze);
                 double db = 20 * Math.Log10(rms + 1e-9); // Offset to prevent log of 0
                 rawDbResults[freq] = db;
             }
@@ -188,10 +197,19 @@ namespace SoncaAudioInspector
             OnLogMessage?.Invoke("Step 3", "Measuring Total Harmonic Distortion (THD) at 1 kHz...");
 
             float[] thdRecord = await _audioEngine.PlayAndRecordAsync(
-                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.2);
+                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5); // 1.5 seconds
 
-            // Calculate THD on the captured buffer
-            int thdStart = thdRecord.Length / 2; // last half
+            // Detect clipping
+            float maxThdSample = thdRecord.Length > 0 ? thdRecord.Select(Math.Abs).Max() : 0f;
+            if (maxThdSample > 0.95f)
+            {
+                OnLogMessage?.Invoke("Warning", "CRITICAL: Input clipping detected during THD! Lower Playback Volume or Recording Gain.");
+            }
+
+            // Calculate THD on the last 500ms captured buffer
+            int sampleRateThd = 48000;
+            int analyzeCountThd = (int)(sampleRateThd * 0.5); // 500ms
+            int thdStart = Math.Max(0, thdRecord.Length - analyzeCountThd);
             float[] thdBuffer = thdRecord.Skip(thdStart).ToArray();
 
             double[] frequencies;
@@ -242,6 +260,50 @@ namespace SoncaAudioInspector
 
             OnStepsChanged?.Invoke(_steps);
             OnTestCompleted?.Invoke(overallSuccess);
+        }
+
+        public async Task RunNoiseTestAsync(MMDevice playbackDevice, MMDevice recordingDevice)
+        {
+            _isCancelled = false;
+            OnLogMessage?.Invoke("Noise Test", "Starting Noise Floor & Hum analysis...");
+
+            if (recordingDevice == null || playbackDevice == null)
+            {
+                OnLogMessage?.Invoke("Noise Test Error", "Error: Missing playback or recording device.");
+                return;
+            }
+
+            // Capture 1.5 seconds of silence (Sine wave of 0 Hz is absolute digital silence)
+            float[] recorded = await _audioEngine.PlayAndRecordAsync(
+                playbackDevice, recordingDevice, SignalType.Sine, 0, 1.5);
+
+            if (_isCancelled) return;
+
+            // Use the last 1.0 second of data
+            int startOffset = recorded.Length / 3;
+            int analyzeCount = recorded.Length - startOffset;
+            float[] noiseBuffer = recorded.Skip(startOffset).ToArray();
+
+            double rms = DspProcessor.CalculateRms(recorded, startOffset, analyzeCount);
+            double dbFS = 20 * Math.Log10(rms + 1e-9);
+
+            // Compute FFT on the noise buffer to show hum and switching noise
+            double[] frequencies;
+            var thdCalc = DspProcessor.CalculateThd(noiseBuffer, 48000, out frequencies);
+
+            // Trigger the spectrum ready event to draw the noise FFT chart (pass 0.0 for THD indicator)
+            OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, 0.0);
+
+            OnLogMessage?.Invoke("Noise Test", $"Average Noise Level: {dbFS:F2} dBFS");
+
+            if (dbFS > -55.0)
+            {
+                OnLogMessage?.Invoke("Noise Test Warning", "WARNING: High noise floor (> -55 dBFS)! Ground loop or USB isolation issue is highly likely.");
+            }
+            else
+            {
+                OnLogMessage?.Invoke("Noise Test", "Noise level is excellent. Signal routing is clean.");
+            }
         }
     }
 }

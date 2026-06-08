@@ -18,6 +18,10 @@ namespace SoncaAudioInspector
         private List<float> _recordedSamples;
         private object _lock = new object();
 
+        // Volume and Gain controls (0.0 to 1.0 / 2.0)
+        public double PlaybackVolume { get; set; } = 0.8;
+        public double RecordingGain { get; set; } = 1.0;
+
         public AudioEngine()
         {
             _enumerator = new MMDeviceEnumerator();
@@ -81,7 +85,8 @@ namespace SoncaAudioInspector
                     float[] buffer = new float[sampleCount];
                     for (int i = 0; i < sampleCount; i++)
                     {
-                        buffer[i] = BitConverter.ToSingle(e.Buffer, i * 4);
+                        // Apply recording gain digitally
+                        buffer[i] = (float)(BitConverter.ToSingle(e.Buffer, i * 4) * RecordingGain);
                     }
                     _recordedSamples.AddRange(buffer);
                     realTimeRecordedCallback?.Invoke(buffer);
@@ -89,7 +94,7 @@ namespace SoncaAudioInspector
             };
 
             // Setup playback
-            _signalProvider = new SignalSampleProvider(sampleRate, signalType, frequency);
+            _signalProvider = new SignalSampleProvider(sampleRate, signalType, frequency, PlaybackVolume);
             _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 60);
             _wasapiOut.Init(_signalProvider);
 
@@ -154,17 +159,19 @@ namespace SoncaAudioInspector
         private readonly SignalType _type;
         private double _frequency;
         private double _phase;
+        private readonly double _volume;
         private readonly WaveFormat _waveFormat;
         private Random _random = new Random();
 
         // Pink noise filter state variables
         private double b0, b1, b2, b3, b4, b5, b6;
 
-        public SignalSampleProvider(int sampleRate, SignalType type, double frequency)
+        public SignalSampleProvider(int sampleRate, SignalType type, double frequency, double volume)
         {
             _sampleRate = sampleRate;
             _type = type;
             _frequency = frequency;
+            _volume = volume;
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
         }
 
@@ -178,7 +185,7 @@ namespace SoncaAudioInspector
             {
                 if (_type == SignalType.Sine)
                 {
-                    buffer[offset + i] = (float)(0.8 * Math.Sin(_phase));
+                    buffer[offset + i] = (float)(_volume * 0.8 * Math.Sin(_phase));
                     _phase += 2.0 * Math.PI * _frequency * samplePeriod;
                     if (_phase > 2.0 * Math.PI)
                     {
@@ -197,7 +204,7 @@ namespace SoncaAudioInspector
                     b5 = -0.7616 * b5 - white * 0.0168980;
                     double pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
                     b6 = white * 0.115926;
-                    buffer[offset + i] = (float)(pink * 0.08); // Scale to prevent clipping
+                    buffer[offset + i] = (float)(pink * 0.08 * _volume); // Scale to prevent clipping
                 }
                 else
                 {

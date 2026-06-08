@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using NAudio.CoreAudioApi;
@@ -12,6 +14,14 @@ using WpfSolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace SoncaAudioInspector
 {
+    public class AppConfig
+    {
+        public double PlaybackVolume { get; set; } = 80;
+        public double RecordingGain { get; set; } = 100;
+        public double FreqTolerance { get; set; } = 3.0;
+        public double ThdLimit { get; set; } = 0.5;
+    }
+
     public partial class MainWindow : Window
     {
         private AudioEngine _audioEngine;
@@ -45,11 +55,57 @@ namespace SoncaAudioInspector
 
             _testRunner.OnTestCompleted += Success => Dispatcher.Invoke(() => SetFinalVerdict(Success));
 
+            // Load saved settings if any
+            LoadConfig();
+
             // Load and detect audio devices
             AutoDetectDevices();
             
             // Pre-initialize charts with dark styling
             InitCharts();
+        }
+
+        private void LoadConfig()
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                if (File.Exists(path))
+                {
+                    string json = File.ReadAllText(path);
+                    var config = JsonSerializer.Deserialize<AppConfig>(json);
+                    if (config != null)
+                    {
+                        SliderPlaybackVolume.Value = config.PlaybackVolume;
+                        SliderRecordingGain.Value = config.RecordingGain;
+                        TxtFreqTolerance.Text = config.FreqTolerance.ToString("F1");
+                        TxtThdLimit.Text = config.ThdLimit.ToString("F2");
+
+                        // Update initial engine values
+                        _audioEngine.PlaybackVolume = config.PlaybackVolume / 100.0;
+                        _audioEngine.RecordingGain = config.RecordingGain / 100.0;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SaveConfig()
+        {
+            try
+            {
+                var config = new AppConfig
+                {
+                    PlaybackVolume = SliderPlaybackVolume.Value,
+                    RecordingGain = SliderRecordingGain.Value,
+                    FreqTolerance = double.TryParse(TxtFreqTolerance.Text, out double ft) ? ft : 3.0,
+                    ThdLimit = double.TryParse(TxtThdLimit.Text, out double tl) ? tl : 0.5
+                };
+                string json = JsonSerializer.Serialize(config);
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                File.WriteAllText(path, json);
+            }
+            catch { }
         }
 
         private void AutoDetectDevices()
@@ -223,11 +279,14 @@ namespace SoncaAudioInspector
                 sp.MarkerSize = 0f;
             }
 
-            // Annotation for THD text
-            var text = PlotThdFft.Plot.Add.Text($"THD: {thdPercent:F3}%", 5000, -15);
-            text.LabelFontColor = ScottPlot.Color.FromHex("#F4F4F5");
-            text.LabelFontSize = 14;
-            text.LabelBold = true;
+            // Annotation for THD text (only show if it is not 0.0, which means it's a THD test, not a noise floor test)
+            if (thdPercent > 0.0)
+            {
+                var text = PlotThdFft.Plot.Add.Text($"THD: {thdPercent:F3}%", 5000, -15);
+                text.LabelFontColor = ScottPlot.Color.FromHex("#F4F4F5");
+                text.LabelFontSize = 14;
+                text.LabelBold = true;
+            }
 
             PlotThdFft.Plot.Axes.SetLimits(0, 10000, -90, 0);
             PlotThdFft.Refresh();
@@ -238,6 +297,7 @@ namespace SoncaAudioInspector
             BtnStart.IsEnabled = true;
             BtnCancel.IsEnabled = false;
             BtnDetect.IsEnabled = true;
+            BtnNoiseTest.IsEnabled = true;
 
             if (success)
             {
@@ -264,6 +324,9 @@ namespace SoncaAudioInspector
 
         private async void BtnStart_Click(object sender, RoutedEventArgs e)
         {
+            // Save settings for next time
+            SaveConfig();
+
             // Reset UI
             _freqs.Clear();
             _dbValues.Clear();
@@ -280,6 +343,7 @@ namespace SoncaAudioInspector
             BtnStart.IsEnabled = false;
             BtnCancel.IsEnabled = true;
             BtnDetect.IsEnabled = false;
+            BtnNoiseTest.IsEnabled = false;
 
             // Update limits in runner
             if (double.TryParse(TxtFreqTolerance.Text, out double fTol))
@@ -305,6 +369,82 @@ namespace SoncaAudioInspector
         private void BtnDetect_Click(object sender, RoutedEventArgs e)
         {
             AutoDetectDevices();
+        }
+
+        private async void BtnNoiseTest_Click(object sender, RoutedEventArgs e)
+        {
+            PlotThdFft.Plot.Clear();
+            PlotThdFft.Refresh();
+            TxtLogs.Clear();
+            
+            BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
+            BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
+            LblVerdict.Text = "ANALYZING NOISE...";
+            LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
+
+            BtnStart.IsEnabled = false;
+            BtnCancel.IsEnabled = true;
+            BtnDetect.IsEnabled = false;
+            BtnNoiseTest.IsEnabled = false;
+
+            var playbackDevice = ComboPlayback.SelectedItem as MMDevice;
+            var recordingDevice = ComboRecording.SelectedItem as MMDevice;
+
+            await _testRunner.RunNoiseTestAsync(playbackDevice, recordingDevice);
+
+            BtnStart.IsEnabled = true;
+            BtnCancel.IsEnabled = false;
+            BtnDetect.IsEnabled = true;
+            BtnNoiseTest.IsEnabled = true;
+            LblVerdict.Text = "NOISE DONE";
+            LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)); // Green
+        }
+
+        private void SliderPlaybackVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_audioEngine != null)
+            {
+                _audioEngine.PlaybackVolume = e.NewValue / 100.0;
+            }
+            if (LblPlaybackVolume != null)
+            {
+                LblPlaybackVolume.Text = $"{(int)e.NewValue}%";
+            }
+        }
+
+        private void SliderRecordingGain_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_audioEngine != null)
+            {
+                _audioEngine.RecordingGain = e.NewValue / 100.0;
+            }
+            if (LblRecordingGain != null)
+            {
+                LblRecordingGain.Text = $"{(int)e.NewValue}%";
+            }
+        }
+
+        private void BtnCloseApp_Click(object sender, RoutedEventArgs e)
+        {
+            this.Close();
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "Do you want to exit Sonca Audio Inspector?", 
+                "Confirm Exit", 
+                MessageBoxButton.YesNo, 
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.No)
+            {
+                e.Cancel = true;
+            }
+            else
+            {
+                base.OnClosing(e);
+            }
         }
 
         protected override void OnClosed(EventArgs e)
