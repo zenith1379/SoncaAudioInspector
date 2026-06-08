@@ -1,0 +1,23 @@
+# Visual Studio / .NET Core
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Build Results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Packages
+.nuget/
+packages/
