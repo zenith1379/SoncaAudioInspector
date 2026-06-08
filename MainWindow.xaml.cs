@@ -63,18 +63,48 @@ namespace SoncaAudioInspector
                 var playbackDevs = _audioEngine.GetPlaybackDevices();
                 var recordingDevs = _audioEngine.GetRecordingDevices();
 
-                foreach (var d in playbackDevs) ComboPlayback.Items.Add(d);
-                foreach (var d in recordingDevs) ComboRecording.Items.Add(d);
+                AppendLog("System", $"Found {playbackDevs.Count} playback and {recordingDevs.Count} recording devices.");
 
-                // Auto select target devices
-                var autoPlayback = _audioEngine.AutoDetectPlaybackDevice();
-                var autoRecording = _audioEngine.AutoDetectRecordingDevice();
+                foreach (var d in playbackDevs) 
+                {
+                    ComboPlayback.Items.Add(d);
+                    AppendLog("Device", $"Playback Out Found: {d.FriendlyName}");
+                }
+                foreach (var d in recordingDevs) 
+                {
+                    ComboRecording.Items.Add(d);
+                    AppendLog("Device", $"Recording In Found: {d.FriendlyName}");
+                }
 
-                if (autoPlayback != null) ComboPlayback.SelectedItem = autoPlayback;
-                else if (ComboPlayback.Items.Count > 0) ComboPlayback.SelectedIndex = 0;
+                // Auto select target devices from the same list instances
+                var autoPlayback = playbackDevs.FirstOrDefault(d => 
+                    d.FriendlyName.IndexOf("MI_LCD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("MI_SAM", StringComparison.OrdinalIgnoreCase) >= 0);
 
-                if (autoRecording != null) ComboRecording.SelectedItem = autoRecording;
-                else if (ComboRecording.Items.Count > 0) ComboRecording.SelectedIndex = 0;
+                var autoRecording = recordingDevs.FirstOrDefault(d => 
+                    d.FriendlyName.IndexOf("SONCA", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                if (autoPlayback != null) 
+                {
+                    ComboPlayback.SelectedItem = autoPlayback;
+                    AppendLog("AutoSelect", $"Matched Output: {autoPlayback.FriendlyName}");
+                }
+                else if (ComboPlayback.Items.Count > 0) 
+                {
+                    ComboPlayback.SelectedIndex = 0;
+                    AppendLog("AutoSelect", $"Fallback Output (No MI_LCD/MI_SAM found): {((MMDevice)ComboPlayback.SelectedItem).FriendlyName}");
+                }
+
+                if (autoRecording != null) 
+                {
+                    ComboRecording.SelectedItem = autoRecording;
+                    AppendLog("AutoSelect", $"Matched Input: {autoRecording.FriendlyName}");
+                }
+                else if (ComboRecording.Items.Count > 0) 
+                {
+                    ComboRecording.SelectedIndex = 0;
+                    AppendLog("AutoSelect", $"Fallback Input (No SONCA found): {((MMDevice)ComboRecording.SelectedItem).FriendlyName}");
+                }
 
                 AppendLog("System", "Device discovery finished.");
             }
@@ -242,7 +272,7 @@ namespace SoncaAudioInspector
             InitCharts();
 
             TxtLogs.Clear();
-            BorderVerdict.Background = (WpfSolidColorBrush)FindResource("ScrollBar.Background");
+            BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
             BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
             LblVerdict.Text = "TESTING...";
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
