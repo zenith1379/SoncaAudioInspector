@@ -218,7 +218,7 @@ namespace SoncaAudioInspector
                 referenceDb = rawDbResults.Values.Max(); // fallback
             }
 
-            bool isSilent = referenceDb < -60.0;
+            bool isSilent = referenceDb < -70.0;
             if (isSilent)
             {
                 freqResponsePass = false;
@@ -303,7 +303,7 @@ namespace SoncaAudioInspector
 
             double thdRms = DspProcessor.CalculateRms(thdBuffer, 0, thdBuffer.Length);
             double thdDbFS = 20 * Math.Log10(thdRms + 1e-9);
-            bool isThdSilent = thdDbFS < -60.0;
+            bool isThdSilent = thdDbFS < -70.0;
 
             bool thdPass = !isThdSilent && thdCalc.thdPercent <= ThdLimitPercent;
 
