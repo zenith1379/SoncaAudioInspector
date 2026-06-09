@@ -70,6 +70,36 @@ namespace SoncaAudioInspector
 
             _testRunner.OnTestCompleted += Success => Dispatcher.Invoke(() => SetFinalVerdict(Success));
 
+            _testRunner.OnTestSubstatusChanged += (type, details) => Dispatcher.Invoke(() =>
+            {
+                if (type == "Freq")
+                {
+                    TxtFreqStatus.Text = details;
+                    if (!string.IsNullOrEmpty(details) && details != "Finished")
+                    {
+                        BorderFreqChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(16, 185, 129)); // Active green
+                        BorderThdChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42)); // Dimmed
+                    }
+                    else
+                    {
+                        BorderFreqChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42)); // Default
+                    }
+                }
+                else if (type == "THD")
+                {
+                    TxtThdStatus.Text = details;
+                    if (!string.IsNullOrEmpty(details) && details != "Finished")
+                    {
+                        BorderThdChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(59, 130, 246)); // Active blue
+                        BorderFreqChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42)); // Dimmed
+                    }
+                    else
+                    {
+                        BorderThdChart.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42)); // Default
+                    }
+                }
+            });
+
             // Load saved settings if any
             LoadConfig();
 
@@ -376,8 +406,7 @@ namespace SoncaAudioInspector
         private void AppendLog(string source, string message)
         {
             string time = DateTime.Now.ToString("HH:mm:ss.fff");
-            TxtLogs.AppendText($"[{time}] [{source}] {message}\n");
-            TxtLogs.ScrollToEnd();
+            System.Diagnostics.Debug.WriteLine($"[{time}] [{source}] {message}");
         }
 
         private async void BtnStart_Click(object sender, RoutedEventArgs e)
@@ -392,7 +421,8 @@ namespace SoncaAudioInspector
             PlotThdFft.Plot.Clear();
             InitCharts();
 
-            TxtLogs.Clear();
+            TxtFreqStatus.Text = "";
+            TxtThdStatus.Text = "";
             BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
             BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
             LblVerdict.Text = "TESTING...";
@@ -435,7 +465,6 @@ namespace SoncaAudioInspector
         {
             PlotThdFft.Plot.Clear();
             PlotThdFft.Refresh();
-            TxtLogs.Clear();
             
             BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
             BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
@@ -483,6 +512,33 @@ namespace SoncaAudioInspector
             if (LblRecordingGain != null)
             {
                 LblRecordingGain.Text = $"{(int)e.NewValue}%";
+            }
+        }
+
+        private bool _isFullscreen = false;
+        private WindowStyle _previousWindowStyle;
+        private WindowState _previousWindowState;
+        private ResizeMode _previousResizeMode;
+
+        private void BtnToggleFullscreen_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isFullscreen)
+            {
+                _previousWindowStyle = this.WindowStyle;
+                _previousWindowState = this.WindowState;
+                _previousResizeMode = this.ResizeMode;
+
+                this.WindowStyle = WindowStyle.None;
+                this.ResizeMode = ResizeMode.NoResize;
+                this.WindowState = WindowState.Maximized;
+                _isFullscreen = true;
+            }
+            else
+            {
+                this.WindowStyle = _previousWindowStyle;
+                this.ResizeMode = _previousResizeMode;
+                this.WindowState = _previousWindowState;
+                _isFullscreen = false;
             }
         }
 

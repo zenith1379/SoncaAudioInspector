@@ -27,6 +27,7 @@ namespace SoncaAudioInspector
         public event Action<double, double> OnFrequencyResponsePoint; // frequency, dB
         public event Action<double[], double[], double> OnThdSpectrumReady; // frequencies, magnitudes, thdPercent
         public event Action<bool> OnTestCompleted;
+        public event Action<string, string> OnTestSubstatusChanged; // type (Freq/THD), details (e.g. "Playing Sweep...")
 
         private List<TestStep> _steps;
         private bool _isCancelled = false;
@@ -93,6 +94,7 @@ namespace SoncaAudioInspector
             _steps[1].Status = "Running";
             OnStepsChanged?.Invoke(_steps);
             OnLogMessage?.Invoke("Step 2", "Starting frequency sweep from 20 Hz to 20 kHz...");
+            OnTestSubstatusChanged?.Invoke("Freq", "Initializing...");
 
             // Frequencies to test (logarithmic spacing)
             double[] sweepFrequencies = new double[]
@@ -112,6 +114,7 @@ namespace SoncaAudioInspector
                     if (_isCancelled) return;
 
                     OnLogMessage?.Invoke("Step 2", $"Testing frequency: {freq} Hz");
+                    OnTestSubstatusChanged?.Invoke("Freq", $"Testing: {freq} Hz");
                     
                     // Play and record the tone
                     float[] recorded = await _audioEngine.PlayAndRecordAsync(
@@ -149,9 +152,11 @@ namespace SoncaAudioInspector
                 }
 
                 OnLogMessage?.Invoke("Step 2", "Playing sweep WAV file (10 seconds)...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Playing Sweep (10s)...");
                 float[] recorded = await _audioEngine.PlayFileAndRecordAsync(wavPath, playbackDevice, recordingDevice, 10.5);
 
                 OnLogMessage?.Invoke("Step 2", "Analyzing sweep recording...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Analyzing Sweep...");
 
                 // Detect clipping
                 float maxSample = recorded.Length > 0 ? recorded.Select(Math.Abs).Max() : 0f;
@@ -254,6 +259,8 @@ namespace SoncaAudioInspector
             _steps[2].Status = "Running";
             OnStepsChanged?.Invoke(_steps);
             OnLogMessage?.Invoke("Step 3", "Measuring Total Harmonic Distortion (THD) at 1 kHz...");
+            OnTestSubstatusChanged?.Invoke("Freq", ""); // Clear freq active status
+            OnTestSubstatusChanged?.Invoke("THD", "Testing 1 kHz Tone (1.5s)...");
 
             float[] thdRecord = await _audioEngine.PlayAndRecordAsync(
                 playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5); // 1.5 seconds
@@ -264,6 +271,8 @@ namespace SoncaAudioInspector
             {
                 OnLogMessage?.Invoke("Warning", "CRITICAL: Input clipping detected during THD! Lower Playback Volume or Recording Gain.");
             }
+
+            OnTestSubstatusChanged?.Invoke("THD", "Analyzing FFT...");
 
             // Calculate THD on the last 500ms captured buffer
             int sampleRateThd = 48000;
@@ -291,6 +300,7 @@ namespace SoncaAudioInspector
                 OnLogMessage?.Invoke("Step 3", $"THD measurement FAILED. THD: {thdCalc.thdPercent:F3}%");
             }
 
+            OnTestSubstatusChanged?.Invoke("THD", "Finished");
             OnStepsChanged?.Invoke(_steps);
             await Task.Delay(500);
 
@@ -301,6 +311,8 @@ namespace SoncaAudioInspector
             // ----------------------------------------------------
             _steps[3].Status = "Running";
             OnStepsChanged?.Invoke(_steps);
+            OnTestSubstatusChanged?.Invoke("Freq", "");
+            OnTestSubstatusChanged?.Invoke("THD", "");
 
             bool overallSuccess = freqResponsePass && thdPass;
 
@@ -325,6 +337,7 @@ namespace SoncaAudioInspector
         {
             _isCancelled = false;
             OnLogMessage?.Invoke("Noise Test", "Starting Noise Floor & Hum analysis...");
+            OnTestSubstatusChanged?.Invoke("THD", "Capturing Silence (1.5s)...");
 
             if (recordingDevice == null || playbackDevice == null)
             {
@@ -337,6 +350,8 @@ namespace SoncaAudioInspector
                 playbackDevice, recordingDevice, SignalType.Sine, 0, 1.5);
 
             if (_isCancelled) return;
+
+            OnTestSubstatusChanged?.Invoke("THD", "Analyzing Noise Spectrum...");
 
             // Use the last 1.0 second of data
             int startOffset = recorded.Length / 3;
@@ -363,6 +378,7 @@ namespace SoncaAudioInspector
             {
                 OnLogMessage?.Invoke("Noise Test", "Noise level is excellent. Signal routing is clean.");
             }
+            OnTestSubstatusChanged?.Invoke("THD", "Finished");
         }
     }
 }

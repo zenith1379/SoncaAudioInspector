@@ -137,13 +137,88 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Custom Flat Button Style to handle disabled state coloring -->
+        <Style x:Key="ModernButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#27272A"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3F3F46"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#1F1F22"/>
+                    <Setter Property="Foreground" Value="#52525B"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Styled Green Button -->
+        <Style x:Key="GreenButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="#10B981"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#34D399"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#1F1F22"/>
+                    <Setter Property="Foreground" Value="#52525B"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Styled Blue Button -->
+        <Style x:Key="BlueButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="#3B82F6"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#60A5FA"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#1F1F22"/>
+                    <Setter Property="Foreground" Value="#52525B"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Styled Red Button -->
+        <Style x:Key="RedButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="#EF4444"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F87171"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#1F1F22"/>
+                    <Setter Property="Foreground" Value="#52525B"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="65"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="140"/>
         </Grid.RowDefinitions>
 
         <!-- Header Bar -->
@@ -167,6 +242,14 @@
                             <TextBlock Text="ASIO / WASAPI Ready" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
+                    <Button Name="BtnToggleFullscreen" Click="BtnToggleFullscreen_Click" Width="30" Height="30" Background="#27272A" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" Margin="0,0,10,0">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="15"/>
+                            </Style>
+                        </Button.Resources>
+                        ⛶
+                    </Button>
                     <Button Name="BtnCloseApp" Click="BtnCloseApp_Click" Width="30" Height="30" Background="#EF4444" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand">
                         <Button.Resources>
                             <Style TargetType="Border">
@@ -291,7 +374,7 @@
                             </StackPanel>
                         </Grid>
 
-                        <Button Name="BtnDetect" Content="Auto Detect Hardware" Click="BtnDetect_Click" Background="#27272A" Foreground="White" BorderThickness="0" Padding="10" Margin="0,0,0,25" Height="35"/>
+                        <Button Name="BtnDetect" Content="Auto Detect Hardware" Click="BtnDetect_Click" Style="{StaticResource ModernButtonStyle}" Margin="0,0,0,25" Height="35"/>
 
                         <Separator Background="#27272A" Margin="0,0,0,20"/>
 
@@ -301,10 +384,10 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Button Name="BtnStart" Content="START AUTO TEST" Click="BtnStart_Click" Background="#10B981" Foreground="Black" FontWeight="Bold" BorderThickness="0" Padding="15,10" Height="42" Margin="0,0,10,0"/>
-                            <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Background="#EF4444" Foreground="Black" FontWeight="Bold" BorderThickness="0" Padding="15,10" Width="80" Height="42" IsEnabled="False"/>
+                            <Button Name="BtnStart" Content="START AUTO TEST" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,10,0"/>
+                            <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Style="{StaticResource RedButtonStyle}" FontWeight="Bold" Width="80" Height="42" IsEnabled="False"/>
                         </Grid>
-                        <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Background="#3B82F6" Foreground="White" FontWeight="Bold" BorderThickness="0" Padding="10" Margin="0,0,0,20" Height="38"/>
+                        <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38"/>
 
                         <!-- Automated Checklist -->
                         <TextBlock Text="TEST SEQUENCE STATUS" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
@@ -332,69 +415,74 @@
                 </ScrollViewer>
             </Border>
 
-            <!-- Plot Charts Panel -->
-            <Grid Grid.Column="1" Margin="15">
+            <!-- Right Panel (Charts & Verdict) -->
+            <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Frequency Response Chart -->
-                <Border Grid.Row="0" Background="#121214" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Margin="0,0,0,15" Padding="10">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="FREQUENCY RESPONSE ANALYSIS (20 Hz - 20 kHz)" FontSize="12" FontWeight="Bold" Foreground="#10B981" Margin="10,0,0,5"/>
-                        <ScottPlot:WpfPlot Name="PlotFreqResponse" Grid.Row="1"/>
-                    </Grid>
-                </Border>
+                <!-- Plot Charts Panel -->
+                <Grid Grid.Row="0" Margin="15,15,15,5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                <!-- THD FFT Spectrum Chart -->
-                <Border Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="10">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="THD ANALYSIS - FFT SPECTRUM (1 kHz Sine Response)" FontSize="12" FontWeight="Bold" Foreground="#3B82F6" Margin="10,0,0,5"/>
-                        <ScottPlot:WpfPlot Name="PlotThdFft" Grid.Row="1"/>
+                    <!-- Frequency Response Chart -->
+                    <Border Name="BorderFreqChart" Grid.Row="0" Background="#121214" BorderBrush="#27272A" BorderThickness="2" CornerRadius="8" Margin="0,0,0,15" Padding="10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="10,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="FREQUENCY RESPONSE ANALYSIS (20 Hz - 20 kHz)" FontSize="12" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center"/>
+                                <TextBlock Name="TxtFreqStatus" Grid.Column="1" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            </Grid>
+                            <ScottPlot:WpfPlot Name="PlotFreqResponse" Grid.Row="1"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- THD FFT Spectrum Chart -->
+                    <Border Name="BorderThdChart" Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="2" CornerRadius="8" Padding="10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="10,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="THD ANALYSIS - FFT SPECTRUM (1 kHz Sine Response)" FontSize="12" FontWeight="Bold" Foreground="#3B82F6" VerticalAlignment="Center"/>
+                                <TextBlock Name="TxtThdStatus" Grid.Column="1" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            </Grid>
+                            <ScottPlot:WpfPlot Name="PlotThdFft" Grid.Row="1"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Footer / Verdict Banner -->
+                <Border Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="0,1,0,0" Height="85">
+                    <Grid Margin="15,10">
+                        <!-- Overall Verdict Banner -->
+                        <Border Name="BorderVerdict" Background="#18181B" BorderThickness="2" BorderBrush="#27272A" CornerRadius="8">
+                            <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Text="OVERALL RESULT" FontSize="11" FontWeight="Bold" Foreground="#71717A" HorizontalAlignment="Center"/>
+                                    <TextBlock Name="LblVerdict" Text="WAITING..." FontSize="28" FontWeight="Black" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>
         </Grid>
-
-        <!-- Footer / Logs & Large Banner -->
-        <Border Grid.Row="2" Background="#121214" BorderBrush="#27272A" BorderThickness="0,1,0,0">
-            <Grid Margin="20,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="340"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Log Panel -->
-                <Grid Grid.Column="0" Margin="0,0,20,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="SYSTEM LOGS" FontSize="10" FontWeight="Bold" Foreground="#52525B" Margin="0,0,0,4"/>
-                    <Border Grid.Row="1" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="1" CornerRadius="4" Padding="8">
-                        <TextBox Name="TxtLogs" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" IsReadOnly="True" Background="Transparent" Foreground="#A1A1AA" BorderThickness="0" FontFamily="Consolas" FontSize="11"/>
-                    </Border>
-                </Grid>
-
-                <!-- Overall Verdict Banner -->
-                <Border Name="BorderVerdict" Grid.Column="1" Background="#18181B" BorderThickness="2" BorderBrush="#27272A" CornerRadius="8">
-                    <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="OVERALL RESULT" FontSize="11" FontWeight="Bold" Foreground="#71717A" HorizontalAlignment="Center"/>
-                            <TextBlock Name="LblVerdict" Text="WAITING..." FontSize="36" FontWeight="Black" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,5,0,0"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-            </Grid>
-        </Border>
     </Grid>
 </Window>
