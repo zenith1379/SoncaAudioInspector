@@ -171,7 +171,7 @@ namespace SoncaAudioInspector
             lock (_lock)
             {
                 // Save output and input files if testing flag is enabled
-                if (flagSaveFile)
+                if (flagSaveFile && !flagGenerateSine)
                 {
                     try
                     {
