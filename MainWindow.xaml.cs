@@ -53,7 +53,11 @@ namespace SoncaAudioInspector
             _testRunner = new TestRunner(_audioEngine);
 
             // Register TestRunner events
-            _testRunner.OnStepsChanged += Steps => Dispatcher.Invoke(() => ListSteps.ItemsSource = Steps.ToList());
+            _testRunner.OnStepsChanged += Steps => Dispatcher.Invoke(() => 
+            {
+                ListSteps.ItemsSource = Steps.ToList();
+                SidebarScrollViewer.ScrollToEnd();
+            });
             _testRunner.OnLogMessage += (source, msg) => Dispatcher.Invoke(() => AppendLog(source, msg));
             
             _testRunner.OnFrequencyResponsePoint += (freq, db) => Dispatcher.Invoke(() =>
@@ -413,7 +417,6 @@ namespace SoncaAudioInspector
         {
             BtnStart.IsEnabled = true;
             BtnCancel.IsEnabled = false;
-            BtnDetect.IsEnabled = true;
             BtnNoiseTest.IsEnabled = true;
 
             if (success)
@@ -459,7 +462,6 @@ namespace SoncaAudioInspector
 
             BtnStart.IsEnabled = false;
             BtnCancel.IsEnabled = true;
-            BtnDetect.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
 
             // Update limits in runner
@@ -485,10 +487,6 @@ namespace SoncaAudioInspector
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
         }
 
-        private void BtnDetect_Click(object sender, RoutedEventArgs e)
-        {
-            AutoDetectDevices();
-        }
 
         private async void BtnNoiseTest_Click(object sender, RoutedEventArgs e)
         {
@@ -502,7 +500,6 @@ namespace SoncaAudioInspector
 
             BtnStart.IsEnabled = false;
             BtnCancel.IsEnabled = true;
-            BtnDetect.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
 
             var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
@@ -514,7 +511,6 @@ namespace SoncaAudioInspector
 
             BtnStart.IsEnabled = true;
             BtnCancel.IsEnabled = false;
-            BtnDetect.IsEnabled = true;
             BtnNoiseTest.IsEnabled = true;
             LblVerdict.Text = "NOISE DONE";
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)); // Green

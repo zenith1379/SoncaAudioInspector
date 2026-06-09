@@ -271,7 +271,7 @@
 
             <!-- Sidebar Controls & Setup -->
             <Border Grid.Column="0" Background="#121214" BorderBrush="#27272A" BorderThickness="0,0,1,0" Padding="20">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Name="SidebarScrollViewer" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- AUDIO ROUTING SETUP -->
                         <Grid Margin="0,0,0,12">
@@ -381,7 +381,6 @@
                             </StackPanel>
                         </Grid>
 
-                        <Button Name="BtnDetect" Content="Auto Detect Hardware" Click="BtnDetect_Click" Style="{StaticResource ModernButtonStyle}" Margin="0,0,0,25" Height="35"/>
 
                         <Separator Background="#27272A" Margin="0,0,0,20"/>
 
@@ -394,7 +393,7 @@
                             <Button Name="BtnStart" Content="START AUTO TEST" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,10,0"/>
                             <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Style="{StaticResource RedButtonStyle}" FontWeight="Bold" Width="80" Height="42" IsEnabled="False"/>
                         </Grid>
-                        <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38"/>
+                        <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38" Visibility="Collapsed"/>
 
                         <!-- Automated Checklist -->
                         <TextBlock Text="TEST SEQUENCE STATUS" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
