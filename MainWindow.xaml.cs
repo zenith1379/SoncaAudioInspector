@@ -336,6 +336,8 @@ namespace SoncaAudioInspector
             line2.LineStyle.Width = 1.5f;
             line2.LineStyle.Pattern = LinePattern.Dashed;
 
+            bool isSilent = _dbValues.Count > 0 && _dbValues.All(v => v < -30);
+
             if (_freqs.Count > 0)
             {
                 double[] xLog = _freqs.Select(f => Math.Log10(f)).ToArray();
@@ -347,6 +349,15 @@ namespace SoncaAudioInspector
                 sp.MarkerSize = 6f;
             }
 
+            if (isSilent)
+            {
+                var txt = PlotFreqResponse.Plot.Add.Text("NO SIGNAL DETECTED", 2.8, 0);
+                txt.LabelFontColor = ScottPlot.Colors.Red;
+                txt.LabelFontSize = 20;
+                txt.LabelBold = true;
+                txt.LabelAlignment = Alignment.MiddleCenter;
+            }
+
             ConfigureLogarithmicXAxis(PlotFreqResponse.Plot);
             PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -12, 12);
             PlotFreqResponse.Refresh();
@@ -356,10 +367,17 @@ namespace SoncaAudioInspector
         {
             PlotThdFft.Plot.Clear();
 
+            bool isSilent = true;
+
             if (frequencies != null && frequencies.Length > 0)
             {
                 // Convert magnitudes to dBFS (max is 0dBFS)
                 double[] dbFS = magnitudes.Select(m => Math.Max(-100, 20 * Math.Log10(m + 1e-9))).ToArray();
+
+                if (dbFS.Max() > -50.0)
+                {
+                    isSilent = false;
+                }
 
                 var sp = PlotThdFft.Plot.Add.Scatter(frequencies, dbFS);
                 sp.LineWidth = 1.5f;
@@ -370,10 +388,21 @@ namespace SoncaAudioInspector
             // Annotation for THD text (only show if it is not 0.0, which means it's a THD test, not a noise floor test)
             if (thdPercent > 0.0)
             {
-                var text = PlotThdFft.Plot.Add.Text($"THD: {thdPercent:F3}%", 5000, -15);
-                text.LabelFontColor = ScottPlot.Color.FromHex("#F4F4F5");
-                text.LabelFontSize = 14;
-                text.LabelBold = true;
+                if (isSilent)
+                {
+                    var txt = PlotThdFft.Plot.Add.Text("NO SIGNAL DETECTED", 5000, -45);
+                    txt.LabelFontColor = ScottPlot.Colors.Red;
+                    txt.LabelFontSize = 20;
+                    txt.LabelBold = true;
+                    txt.LabelAlignment = Alignment.MiddleCenter;
+                }
+                else
+                {
+                    var text = PlotThdFft.Plot.Add.Text($"THD: {thdPercent:F3}%", 5000, -15);
+                    text.LabelFontColor = ScottPlot.Color.FromHex("#F4F4F5");
+                    text.LabelFontSize = 14;
+                    text.LabelBold = true;
+                }
             }
 
             PlotThdFft.Plot.Axes.SetLimits(0, 10000, -90, 0);
@@ -545,6 +574,11 @@ namespace SoncaAudioInspector
         private void BtnCloseApp_Click(object sender, RoutedEventArgs e)
         {
             this.Close();
+        }
+
+        private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
+        {
+            AutoDetectDevices();
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)

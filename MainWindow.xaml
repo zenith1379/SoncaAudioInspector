@@ -274,7 +274,14 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <!-- AUDIO ROUTING SETUP -->
-                        <TextBlock Text="AUDIO ROUTING SETUP" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="AUDIO ROUTING SETUP" FontSize="11" FontWeight="Bold" Foreground="#71717A" VerticalAlignment="Center"/>
+                            <Button Name="BtnRefreshDevices" Content="↻" Click="BtnRefreshDevices_Click" Style="{StaticResource ModernButtonStyle}" Grid.Column="1" Width="26" Height="26" Padding="0" FontSize="14" ToolTip="Refresh Audio Devices" VerticalAlignment="Center"/>
+                        </Grid>
 
                         <!-- PLAYBACK OUT REGION -->
                         <Border Background="#1A1A1E" CornerRadius="6" Padding="12" Margin="0,0,0,15" BorderBrush="#27272A" BorderThickness="1">

@@ -209,12 +209,19 @@ namespace SoncaAudioInspector
                 referenceDb = rawDbResults.Values.Max(); // fallback
             }
 
+            bool isSilent = referenceDb < -50.0;
+            if (isSilent)
+            {
+                freqResponsePass = false;
+                OnLogMessage?.Invoke("Step 2 Error", $"Silent input detected ({referenceDb:F1} dBFS). Check playback/recording device connections.");
+            }
+
             Dictionary<double, double> normalizedResults = new Dictionary<double, double>();
             double maxFreqDev = 0;
 
             foreach (var kvp in rawDbResults)
             {
-                double normDb = kvp.Value - referenceDb;
+                double normDb = isSilent ? kvp.Value : (kvp.Value - referenceDb);
                 normalizedResults[kvp.Key] = normDb;
 
                 // Fire point event so the UI chart updates in real-time
@@ -228,7 +235,7 @@ namespace SoncaAudioInspector
                     {
                         maxFreqDev = absoluteDev;
                     }
-                    if (absoluteDev > FreqResponseToleranceDb)
+                    if (isSilent || absoluteDev > FreqResponseToleranceDb)
                     {
                         freqResponsePass = false;
                     }
@@ -244,8 +251,8 @@ namespace SoncaAudioInspector
             else
             {
                 _steps[1].Status = "Fail";
-                _steps[1].Details = $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
-                OnLogMessage?.Invoke("Step 2", $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB");
+                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
+                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB");
             }
 
             OnStepsChanged?.Invoke(_steps);
@@ -285,7 +292,11 @@ namespace SoncaAudioInspector
 
             OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, thdCalc.thdPercent);
 
-            bool thdPass = thdCalc.thdPercent <= ThdLimitPercent;
+            double thdRms = DspProcessor.CalculateRms(thdBuffer, 0, thdBuffer.Length);
+            double thdDbFS = 20 * Math.Log10(thdRms + 1e-9);
+            bool isThdSilent = thdDbFS < -50.0;
+
+            bool thdPass = !isThdSilent && thdCalc.thdPercent <= ThdLimitPercent;
 
             if (thdPass)
             {
@@ -296,8 +307,8 @@ namespace SoncaAudioInspector
             else
             {
                 _steps[2].Status = "Fail";
-                _steps[2].Details = $"THD: {thdCalc.thdPercent:F3}% (Limit: < {ThdLimitPercent}%)";
-                OnLogMessage?.Invoke("Step 3", $"THD measurement FAILED. THD: {thdCalc.thdPercent:F3}%");
+                _steps[2].Details = isThdSilent ? "No signal detected (silent input)." : $"THD: {thdCalc.thdPercent:F3}% (Limit: < {ThdLimitPercent}%)";
+                OnLogMessage?.Invoke("Step 3", isThdSilent ? "THD measurement FAILED: Silent input." : $"THD measurement FAILED. THD: {thdCalc.thdPercent:F3}%");
             }
 
             OnTestSubstatusChanged?.Invoke("THD", "Finished");
