@@ -374,7 +374,7 @@ namespace SoncaAudioInspector
                 // Convert magnitudes to dBFS (max is 0dBFS)
                 double[] dbFS = magnitudes.Select(m => Math.Max(-100, 20 * Math.Log10(m + 1e-9))).ToArray();
 
-                if (dbFS.Max() > -50.0)
+                if (dbFS.Max() > -60.0)
                 {
                     isSilent = false;
                 }
