@@ -1,0 +1,135 @@
+<Window x:Class="SoncaAudioInspector.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="System Pre-check" Height="380" Width="520"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterScreen">
+
+    <Border Background="#0E0E10" CornerRadius="12" BorderBrush="#27272A" BorderThickness="1.5">
+        <Grid Margin="30">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Title & Subtitle -->
+                <RowDefinition Height="*"/>    <!-- Check List -->
+                <RowDefinition Height="Auto"/> <!-- Status Text & Buttons -->
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,25">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <TextBlock Text="SONCA" FontSize="24" FontWeight="Black" Foreground="#10B981"/>
+                    <TextBlock Text=" AUDIO INSPECTOR" FontSize="24" FontWeight="Light" Foreground="#F4F4F5"/>
+                </StackPanel>
+                <TextBlock Text="HỆ THỐNG ĐANG KIỂM TRA" FontSize="11" FontWeight="Bold" Foreground="#71717A" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+            </StackPanel>
+
+            <!-- Diagnostic Rows -->
+            <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                <!-- SYS001 Check -->
+                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,10" Margin="0,0,0,15">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Icon & Label -->
+                        <TextBlock Name="IconSys001" Grid.Column="0" Text="○" FontSize="18" FontWeight="Bold" Foreground="#71717A" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                        <TextBlock Name="TxtSys001" Grid.Column="1" Text="SYS001 - Kiểm tra kết nối Internet (Đang kiểm tra...)" FontSize="13" Foreground="#E4E4E7" VerticalAlignment="Center"/>
+                        
+                        <!-- Error message if fail -->
+                        <TextBlock Name="ErrorSys001" Grid.Row="1" Grid.Column="1" Text="" FontSize="11" Foreground="#EF4444" Margin="0,4,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <!-- SYS002 Check -->
+                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Name="IconSys002" Grid.Column="0" Text="○" FontSize="18" FontWeight="Bold" Foreground="#71717A" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                        <TextBlock Name="TxtSys002" Grid.Column="1" Text="SYS002 - Kiểm tra kết nối thiết bị phần cứng (Đang kiểm tra...)" FontSize="13" Foreground="#E4E4E7" VerticalAlignment="Center"/>
+                        
+                        <TextBlock Name="ErrorSys002" Grid.Row="1" Grid.Column="1" Text="" FontSize="11" Foreground="#EF4444" Margin="0,4,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <!-- Bottom Info / Buttons -->
+            <StackPanel Grid.Row="2" Margin="0,20,0,0">
+                <TextBlock Name="LblStatus" Text="Đang thực hiện kiểm tra chẩn đoán hệ thống..." FontSize="12" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,0,0,15"/>
+                
+                <!-- Buttons shown ONLY on failure -->
+                <Grid Name="PanelFailureButtons" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Button Name="BtnRetry" Content="Kiểm tra lại" Click="BtnRetry_Click" Margin="0,0,8,0" Height="36" Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#3B82F6"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="10,0">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#60A5FA"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button Name="BtnExit" Content="Thoát ứng dụng" Click="BtnExit_Click" Margin="8,0,0,0" Height="36" Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#EF4444"/>
+                                <Setter Property="Foreground" Value="Black"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="10,0">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#F87171"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

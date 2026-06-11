@@ -99,8 +99,11 @@ namespace SoncaAudioInspector
             // Frequencies to test (logarithmic spacing)
             double[] sweepFrequencies = new double[]
             {
-                20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 500, 700, 1000, 
-                1500, 2000, 3000, 4000, 5000, 7000, 10000, 12000, 15000, 17000, 20000
+                20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000
+                /*20, 50, 100, 150, 200, 250,
+                500, 750, 1000, 1250, 1500, 
+                3000, 4000, 5000, 6000, 7000,
+                10000, 15000, 20000*/
             };
 
             Dictionary<double, double> rawDbResults = new Dictionary<double, double>();
@@ -108,20 +111,13 @@ namespace SoncaAudioInspector
 
             if (AudioEngine.flagGenerateSine)
             {
-                double toneDuration = 0.8; // 800ms per tone to completely clear USB buffer start latency
+                double toneDuration = 0.5; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
                 foreach (var freq in sweepFrequencies)
                 {
                     if (_isCancelled) return;
 
-                    if (freq < 200)
-                    {
-                        toneDuration = 0.8;
-                    }
-                    else 
-                    {
-                        toneDuration = 0.6;
-                    }
-                    
+                    OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
+
                     OnLogMessage?.Invoke("Step 2", $"Testing frequency: {freq} Hz");
                     OnTestSubstatusChanged?.Invoke("Freq", $"Testing: {freq} Hz");
                     
