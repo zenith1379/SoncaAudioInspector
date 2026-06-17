@@ -1,5 +1,8 @@
 using System;
+using System.Globalization;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -8,141 +11,338 @@ namespace SoncaAudioInspector
 {
     public class ServerEngine
     {
-        // Global variables stored for later use as requested
-        public static string? StaffID { get; set; }
-        public static string? ProductID { get; set; }
-        public static string? TokenApp { get; set; }
+        private const string DefaultApiBaseUrl = "https://speaker-inventory-system.vercel.app";
+        private const string AppApiKeyConstant = "acnos_app_4YpA9cVn7xS2mKq8LrT6wHz3BdE5uJfP";
 
-        private static readonly HttpClient client = new HttpClient();
+        private static readonly HttpClient client = new()
+        {
+            Timeout = TimeSpan.FromSeconds(20)
+        };
+
+        public static string? StaffID { get; private set; }
+        public static string? ApiKey { get; private set; }
+        public static string? RefreshToken { get; private set; }
+        public static string? AppToken { get; private set; }
+        public static string? UserRole { get; private set; }
+        public static string? UserName { get; private set; }
+        public static string? UserEmail { get; private set; }
+        public static DateTimeOffset? ApiKeyExpiresAtUtc { get; private set; }
+        public static DateTimeOffset? RefreshTokenExpiresAtUtc { get; private set; }
+        public static DateTimeOffset? AppTokenExpiresAtUtc { get; private set; }
+        public static string? LastError { get; private set; }
+
+        public static bool HasValidApiKey =>
+            !string.IsNullOrWhiteSpace(ApiKey) &&
+            (!ApiKeyExpiresAtUtc.HasValue || ApiKeyExpiresAtUtc > DateTimeOffset.UtcNow.AddMinutes(1));
+
+        public static bool HasValidRefreshToken =>
+            !string.IsNullOrWhiteSpace(RefreshToken) &&
+            (!RefreshTokenExpiresAtUtc.HasValue || RefreshTokenExpiresAtUtc > DateTimeOffset.UtcNow);
+
+        public static bool IsAuthenticated =>
+            (HasValidApiKey || HasValidRefreshToken) &&
+            !string.IsNullOrWhiteSpace(StaffID) &&
+            (UserRole == "ADMIN" || UserRole == "STAFF");
+
+        private static string ApiBaseUrl =>
+            (Environment.GetEnvironmentVariable("SONCA_API_BASE_URL") ?? DefaultApiBaseUrl)
+            .TrimEnd('/');
 
         /// <summary>
-        /// Requests a temporary token from the server using hardcoded admin credentials.
+        /// Step 1: Verify the application to get a temporary AppToken.
         /// </summary>
-        public static async Task<bool> RequestTokenAsync()
+        public static async Task<bool> VerifyAppAsync()
         {
-            TokenApp = null;
+            if (AppToken != null && AppTokenExpiresAtUtc > DateTimeOffset.UtcNow.AddSeconds(30))
+                return true;
 
-            // Mock check: for local testing, if offline/no API, we can fall back to mock token
-            // In case real connection fails, we log it, but here is the request implementation:
             try
             {
-                string requestUrl = "https://api.sonca.vn/token"; // Placeholder API URL
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/api/app/verify");
+                request.Headers.Add("X-App-Key", AppApiKeyConstant);
 
-                // Fixed hardcoded admin user and pass
-                var requestBody = new
+                using HttpResponseMessage response = await client.SendAsync(request);
+                string responseJson = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
                 {
-                    user = "admin",
-                    pass = "admin"
-                };
-
-                string jsonContent = JsonSerializer.Serialize(requestBody);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
-                client.Timeout = TimeSpan.FromSeconds(5);
-                HttpResponseMessage response = await client.PostAsync(requestUrl, content);
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    string responseJson = await response.Content.ReadAsStringAsync();
-                    using (JsonDocument doc = JsonDocument.Parse(responseJson))
-                    {
-                        JsonElement root = doc.RootElement;
-                        if (root.TryGetProperty("token", out JsonElement tokenElement) && tokenElement.ValueKind != JsonValueKind.Null)
-                        {
-                            string? tokenVal = tokenElement.GetString();
-                            if (!string.IsNullOrEmpty(tokenVal))
-                            {
-                                TokenApp = tokenVal;
-                                return true;
-                            }
-                        }
-                    }
+                    LastError = ReadApiError(responseJson) ?? "Không thể xác thực ứng dụng (App Verify Failed).";
+                    return false;
                 }
+
+                using JsonDocument document = JsonDocument.Parse(responseJson);
+                JsonElement payload = GetPayload(document.RootElement);
+
+                AppToken = GetString(payload, "appToken");
+                AppTokenExpiresAtUtc = ReadExpiresIn(payload);
+
+                return !string.IsNullOrEmpty(AppToken);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ServerEngine Exception] Error during RequestToken: {ex}");
+                LastError = $"Lỗi xác thực App: {ex.Message}";
+                return false;
             }
-
-            // Fallback mock token for standard offline developer environment testing:
-            // Remove/modify this fallback if you strictly want it to fail without a real server connection.
-            #if DEBUG
-            TokenApp = "MOCK-DEV-TOKEN-12345";
-            return true;
-            #else
-            return false;
-            #endif
         }
 
         /// <summary>
-        /// Authenticates the user with the server using the provided username and password.
+        /// Step 2: Authenticate user with AppToken and credentials.
         /// </summary>
-        public static async Task<bool> AuthenticateAsync(string username, string password)
+        public static async Task<bool> AuthenticateAsync(string account, string password)
         {
-            // Reset cached values
-            StaffID = null;
+            ClearSession();
 
-            // Mock behavior for testing when no server is connected or for default developer login:
-            if (username.Equals("admin", StringComparison.OrdinalIgnoreCase) && password == "admin")
-            {
-                // Pre-fill mock data matching the requested validation pattern
-                StaffID = "STAFF-001";
-                return true;
-            }
+            // Always try to verify app first
+            if (!await VerifyAppAsync()) return false;
 
             try
             {
-                string requestUrl = "https://api.sonca.vn/login"; // Placeholder API URL
+                var requestBody = new { email = account, password };
 
-                var requestBody = new
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/api/auth/login")
                 {
-                    username = username,
-                    password = password
+                    Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
                 };
+                request.Headers.Add("X-App-Token", AppToken);
 
-                string jsonContent = JsonSerializer.Serialize(requestBody);
-                
-                // Construct request manually to add Authorization headers dynamically
-                using (var request = new HttpRequestMessage(HttpMethod.Post, requestUrl))
+                using HttpResponseMessage response = await client.SendAsync(request);
+                string responseJson = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
                 {
-                    request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                    
-                    // Attach Bearer token obtained from RequestTokenAsync
-                    if (!string.IsNullOrEmpty(TokenApp))
+                    LastError = ReadApiError(responseJson) ?? (response.StatusCode switch
                     {
-                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TokenApp);
-                    }
-
-                    client.Timeout = TimeSpan.FromSeconds(5);
-                    HttpResponseMessage response = await client.SendAsync(request);
-                    
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string responseJson = await response.Content.ReadAsStringAsync();
-                        
-                        // Parse response using JsonDocument to dynamically extract staffID
-                        using (JsonDocument doc = JsonDocument.Parse(responseJson))
-                        {
-                            JsonElement root = doc.RootElement;
-                            
-                            if (root.TryGetProperty("staffID", out JsonElement staffIdElement) && staffIdElement.ValueKind != JsonValueKind.Null)
-                            {
-                                string? staffIdVal = staffIdElement.GetString();
-                                if (!string.IsNullOrEmpty(staffIdVal))
-                                {
-                                    StaffID = staffIdVal;                                
-                                    return true;
-                                }
-                            }
-                        }
-                    }
+                        HttpStatusCode.Unauthorized => "Tài khoản hoặc mật khẩu không chính xác.",
+                        HttpStatusCode.Forbidden => "Tài khoản không có quyền truy cập hoặc bị giới hạn thiết bị.",
+                        _ => $"Lỗi đăng nhập: {(int)response.StatusCode}"
+                    });
+                    return false;
                 }
+
+                using JsonDocument document = JsonDocument.Parse(responseJson);
+                JsonElement payload = GetPayload(document.RootElement);
+
+                // User Info
+                StaffID = GetString(payload, "staffId");
+                UserRole = GetString(payload, "role")?.ToUpperInvariant();
+                UserName = GetString(payload, "name") ?? GetString(payload, "username");
+                UserEmail = GetString(payload, "email");
+
+                // Access Token (SIS Key)
+                ApiKey = GetString(payload, "accessToken");
+                ApiKeyExpiresAtUtc = ReadExpiresIn(payload, "expiresIn");
+
+                // Refresh Token
+                RefreshToken = GetString(payload, "refreshToken");
+                RefreshTokenExpiresAtUtc = ReadExpiresIn(payload, "refreshExpiresIn");
+
+                if (!IsAuthenticated)
+                {
+                    LastError = "Tài khoản không đủ quyền hạn hoặc thiếu token.";
+                    ClearSession(keepError: true);
+                    return false;
+                }
+
+                return true;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ServerEngine Exception] Error during authentication: {ex}");
+                LastError = $"Lỗi hệ thống: {ex.Message}";
+                ClearSession(keepError: true);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Step 3: Refresh Access Token using Refresh Token.
+        /// </summary>
+        public static async Task<bool> RefreshAccessTokenAsync()
+        {
+            if (string.IsNullOrEmpty(RefreshToken)) return false;
+
+            try
+            {
+                var requestBody = new { refreshToken = RefreshToken };
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/api/auth/refresh")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+                };
+
+                using HttpResponseMessage response = await client.SendAsync(request);
+                string responseJson = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    ClearSession();
+                    return false;
+                }
+
+                using JsonDocument document = JsonDocument.Parse(responseJson);
+                JsonElement payload = GetPayload(document.RootElement);
+
+                ApiKey = GetString(payload, "accessToken");
+                ApiKeyExpiresAtUtc = ReadExpiresIn(payload, "expiresIn");
+
+                return !string.IsNullOrEmpty(ApiKey);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Step 4: Logout and revoke tokens on server.
+        /// </summary>
+        public static async Task LogoutAsync()
+        {
+            if (!string.IsNullOrEmpty(ApiKey))
+            {
+                try
+                {
+                    var requestBody = new { refreshToken = RefreshToken };
+                    using var request = CreateAuthorizedRequest(HttpMethod.Post, "api/auth/logout");
+                    request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+                    await client.SendAsync(request);
+                }
+                catch { /* Ignore logout errors */ }
+            }
+            ClearSession();
+        }
+
+        public static void Logout()
+        {
+            _ = LogoutAsync(); // Fire and forget
+        }
+
+        public static HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(ApiKey))
+            {
+                throw new InvalidOperationException("Chưa đăng nhập.");
             }
 
+            var request = new HttpRequestMessage(method, $"{ApiBaseUrl}/{relativePath.TrimStart('/')}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
+            return request;
+        }
+
+        public static async Task<HttpResponseMessage> SendAuthorizedAsync(
+            HttpMethod method,
+            string relativePath,
+            HttpContent? content = null)
+        {
+            // Auto-refresh if expired
+            if (!HasValidApiKey && HasValidRefreshToken)
+            {
+                await RefreshAccessTokenAsync();
+            }
+
+            using HttpRequestMessage request = CreateAuthorizedRequest(method, relativePath);
+            request.Content = content;
+            return await client.SendAsync(request);
+        }
+        public static void ClearSession(bool keepError = false)
+        {
+            StaffID = null;
+            ApiKey = null;
+            RefreshToken = null;
+            AppToken = null;
+            UserRole = null;
+            UserName = null;
+            UserEmail = null;
+            ApiKeyExpiresAtUtc = null;
+            RefreshTokenExpiresAtUtc = null;
+            AppTokenExpiresAtUtc = null;
+
+            if (!keepError)
+            {
+                LastError = null;
+            }
+        }
+
+        // ── JSON helpers ─────────────────────────────────────────────
+
+        private static JsonElement GetPayload(JsonElement root)
+        {
+            return TryGetProperty(root, "data", out JsonElement data) && data.ValueKind == JsonValueKind.Object
+                ? data
+                : root;
+        }
+
+        private static string? ReadApiError(string responseJson)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(responseJson);
+                JsonElement root = document.RootElement;
+
+                if (TryGetProperty(root, "message", out JsonElement message) && message.ValueKind == JsonValueKind.String)
+                {
+                    return message.GetString();
+                }
+
+                if (TryGetProperty(root, "error", out JsonElement error))
+                {
+                    return error.ValueKind == JsonValueKind.String
+                        ? error.GetString()
+                        : error.GetRawText();
+                }
+            }
+            catch (JsonException)
+            {
+            }
+
+            return null;
+        }
+
+        private static string? GetString(JsonElement element, string propertyName)
+        {
+            if (!TryGetProperty(element, propertyName, out JsonElement value))
+            {
+                return null;
+            }
+
+            return value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null
+            };
+        }
+
+        private static DateTimeOffset? ReadDateTimeOffset(JsonElement payload, string propertyName)
+        {
+            string? value = GetString(payload, propertyName);
+            return DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out DateTimeOffset parsed)
+                ? parsed.ToUniversalTime()
+                : null;
+        }
+
+        private static DateTimeOffset? ReadExpiresIn(JsonElement payload, string propertyName = "expiresIn")
+        {
+            string? expiresIn = GetString(payload, propertyName);
+            return double.TryParse(expiresIn, NumberStyles.Number, CultureInfo.InvariantCulture, out double seconds)
+                ? DateTimeOffset.UtcNow.AddSeconds(seconds)
+                : null;
+        }
+
+        private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (property.Name.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+
+            value = default;
             return false;
         }
     }
