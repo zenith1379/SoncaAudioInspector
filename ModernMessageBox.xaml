@@ -1,0 +1,85 @@
+<Window x:Class="SoncaAudioInspector.ModernMessageBox"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Thông báo" 
+        Height="210" 
+        Width="410"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        Background="Transparent"
+        AllowsTransparency="True">
+    
+    <Border Background="#0F0F11" 
+            CornerRadius="10" 
+            BorderThickness="1.5" 
+            BorderBrush="#3F3F46" 
+            Margin="15">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="15" 
+                              ShadowDepth="0" 
+                              Color="#10B981" 
+                              Opacity="0.45"/>
+        </Border.Effect>
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Icon & Title -->
+                <RowDefinition Height="*"/>    <!-- Message Content -->
+                <RowDefinition Height="Auto"/> <!-- Action Buttons -->
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock Name="TxtIcon" Text="ℹ" FontSize="18" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Name="TxtTitle" Text="Thông báo" FontSize="14" FontWeight="Bold" Foreground="#F4F4F5" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Message Text -->
+            <TextBlock Name="TxtMessage" 
+                       Grid.Row="1" 
+                       Text="Message text goes here..." 
+                       Foreground="#A1A1AA" 
+                       FontSize="13" 
+                       TextWrapping="Wrap" 
+                       VerticalAlignment="Center"
+                       Margin="0,0,0,15"/>
+
+            <!-- Buttons Grid -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Name="BtnNo" 
+                        Content="Không" 
+                        Click="BtnNo_Click"
+                        Background="Transparent"
+                        Foreground="#A1A1AA"
+                        BorderBrush="#27272A"
+                        BorderThickness="1"
+                        Padding="18,6"
+                        Cursor="Hand"
+                        Margin="0,0,8,0"
+                        Visibility="Collapsed">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+
+                <Button Name="BtnYes" 
+                        Content="Đồng ý" 
+                        Click="BtnYes_Click"
+                        Background="#10B981"
+                        Foreground="Black"
+                        BorderThickness="0"
+                        FontWeight="SemiBold"
+                        Padding="18,6"
+                        Cursor="Hand">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

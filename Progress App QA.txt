@@ -1,0 +1,29 @@
+=========== WEB ===============
+- 08/6 - 10/6: Finish stage 1
+	1. Xóa tạo record real table
+	2. Sửa giao diện
+- 10/6 - 20/6: API Web giao tiếp app 
+	1. Tạo API server cho các function
+	2. API Key bảo mật, Login, Retry Session
+- 20/6 - 26/6:
+	1. API Query sản phẩm
+	1. API lưu trữ Steps vào table
+	2. Web Display chi tiết tiến trình QA với Steps
+
+
+=========== APP ===============
+- 08/6 - 11/6:
+	1. Test các ngõ cho MI-LCD
+	2. UI App
+- 11/6 - 20/6:
+	1. UI Login, Progress
+	2. Tích hợp Web API Login
+- 20/6 - 26/6: triển khai các step
+	1. Scan Serial + API query status Sản phẩm
+	2. Step 1 auto các ngõ vào/ra với 2 check FEQ, THD
+	3. Step 2 AI check ngoại quan
+	4. Upload Server status/ảnh/note mỗi steps
+
+- Step 3: check cũ (nút vặn, LED)
+- Các Step theo nhu cầu
+- Upload Server QA status tổng
