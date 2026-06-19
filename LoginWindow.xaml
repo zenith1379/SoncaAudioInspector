@@ -159,6 +159,7 @@
 
                 <Button x:Name="BtnLogin" 
                         Content="Đăng nhập" 
+                        IsDefault="True"
                         Click="BtnLogin_Click"
                         Background="#10B981"
                         Foreground="#FFFFFF"

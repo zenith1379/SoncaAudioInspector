@@ -111,7 +111,7 @@ namespace SoncaAudioInspector
 
             if (AudioEngine.flagGenerateSine)
             {
-                double toneDuration = 0.8; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
+                double toneDuration = 0.5; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
                 foreach (var freq in sweepFrequencies)
                 {
                     if (_isCancelled) return;

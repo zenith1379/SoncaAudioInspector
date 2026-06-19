@@ -77,8 +77,8 @@ namespace SoncaAudioInspector
             int sampleRate = 48000; // Standard professional audio sample rate
             int channels = 1;
 
-            // Setup recording
-            _wasapiCapture = new WasapiCapture(recordingDevice);
+            // Setup recording (using event sync with 150ms latency buffer)
+            _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             // Use the actual device format (usually 2 channels, 48000Hz) to prevent Windows shared mode resampler bugs
             var deviceFormat = _wasapiCapture.WaveFormat;
             int devChannels = deviceFormat.Channels;
@@ -156,7 +156,7 @@ namespace SoncaAudioInspector
                 }
             });
 
-            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 60);
+            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 150);
             _wasapiOut.Init(_signalProvider);
 
             // Start capture and playback
@@ -219,8 +219,8 @@ namespace SoncaAudioInspector
             int sampleRate = 48000;
             int channels = 1;
 
-            // Setup recording
-            _wasapiCapture = new WasapiCapture(recordingDevice);
+            // Setup recording (using event sync with 150ms latency buffer)
+            _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             var deviceFormat = _wasapiCapture.WaveFormat;
             int devChannels = deviceFormat.Channels;
             
@@ -284,7 +284,7 @@ namespace SoncaAudioInspector
             var volumeProvider = new VolumeSampleProvider(fileReader);
             volumeProvider.Volume = (float)PlaybackVolume;
 
-            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 60);
+            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 150);
             _wasapiOut.Init(volumeProvider);
 
             // Start capture and playback
