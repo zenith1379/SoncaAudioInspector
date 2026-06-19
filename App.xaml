@@ -166,7 +166,7 @@
 
         <!-- Tab Button Style -->
         <Style x:Key="TabButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="#18181B"/>
             <Setter Property="Foreground" Value="#71717A"/>
             <Setter Property="BorderBrush" Value="#27272A"/>
             <Setter Property="BorderThickness" Value="1"/>

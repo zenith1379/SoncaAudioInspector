@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="System Pre-check" Height="380" Width="520"
+        Title="System Pre-check" Height="460" Width="520"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen">
 
@@ -17,7 +17,7 @@
             </Grid.RowDefinitions>
 
             <!-- Header -->
-            <StackPanel Grid.Row="0" Margin="0,0,0,25">
+            <StackPanel Grid.Row="0" Margin="0,0,0,20">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                     <TextBlock Text="SONCA" FontSize="24" FontWeight="Black" Foreground="#10B981"/>
                     <TextBlock Text=" AUDIO INSPECTOR" FontSize="24" FontWeight="Light" Foreground="#F4F4F5"/>
@@ -28,7 +28,7 @@
             <!-- Diagnostic Rows -->
             <StackPanel Grid.Row="1" VerticalAlignment="Center">
                 <!-- SYS001 Check -->
-                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,10" Margin="0,0,0,15">
+                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,8" Margin="0,0,0,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -49,7 +49,7 @@
                 </Border>
 
                 <!-- SYS002 Check -->
-                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,10">
+                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,8" Margin="0,0,0,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -61,15 +61,34 @@
                         </Grid.RowDefinitions>
 
                         <TextBlock Name="IconSys002" Grid.Column="0" Text="○" FontSize="18" FontWeight="Bold" Foreground="#71717A" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                        <TextBlock Name="TxtSys002" Grid.Column="1" Text="SYS002 - Kiểm tra kết nối thiết bị phần cứng (Đang kiểm tra...)" FontSize="13" Foreground="#E4E4E7" VerticalAlignment="Center"/>
+                        <TextBlock Name="TxtSys002" Grid.Column="1" Text="SYS002 - Kiểm tra và tải cấu hình hệ thống (Đang kiểm tra...)" FontSize="13" Foreground="#E4E4E7" VerticalAlignment="Center"/>
                         
                         <TextBlock Name="ErrorSys002" Grid.Row="1" Grid.Column="1" Text="" FontSize="11" Foreground="#EF4444" Margin="0,4,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <!-- SYS003 Check -->
+                <Border Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="8" Padding="15,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Name="IconSys003" Grid.Column="0" Text="○" FontSize="18" FontWeight="Bold" Foreground="#71717A" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                        <TextBlock Name="TxtSys003" Grid.Column="1" Text="SYS003 - Kiểm tra kết nối thiết bị phần cứng (Đang kiểm tra...)" FontSize="13" Foreground="#E4E4E7" VerticalAlignment="Center"/>
+                        
+                        <TextBlock Name="ErrorSys003" Grid.Row="1" Grid.Column="1" Text="" FontSize="11" Foreground="#EF4444" Margin="0,4,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
                     </Grid>
                 </Border>
             </StackPanel>
 
             <!-- Bottom Info / Buttons -->
-            <StackPanel Grid.Row="2" Margin="0,20,0,0">
+            <StackPanel Grid.Row="2" Margin="0,15,0,0">
                 <TextBlock Name="LblStatus" Text="Đang thực hiện kiểm tra chẩn đoán hệ thống..." FontSize="12" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,0,0,15"/>
                 
                 <!-- Buttons shown ONLY on failure -->
