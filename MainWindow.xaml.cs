@@ -14,6 +14,42 @@ using WpfSolidColorBrush = System.Windows.Media.SolidColorBrush;
 
 namespace SoncaAudioInspector
 {
+    public class CheckingConfig
+    {
+        public List<ModelConfig> models { get; set; }
+    }
+    public class ModelConfig
+    {
+        public string model { get; set; }
+        public TestItems testItems { get; set; }
+    }
+    public class TestItems
+    {
+        public InOutConfig InOut { get; set; }
+    }
+    public class InOutConfig
+    {
+        public string Description { get; set; }
+        public DevicesConfig Devices { get; set; }
+        public List<TestConfig> Tests { get; set; }
+    }
+    public class DevicesConfig
+    {
+        public Dictionary<string, string> Input { get; set; }
+        public Dictionary<string, string> Output { get; set; }
+    }
+    public class TestConfig
+    {
+        public string id { get; set; }
+        public string name { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("Playback Out")]
+        public string PlaybackOut { get; set; }
+        
+        [System.Text.Json.Serialization.JsonPropertyName("Recording In")]
+        public string RecordingIn { get; set; }
+    }
+
     public class AppConfig
     {
         public double PlaybackVolume { get; set; } = 80;
@@ -44,6 +80,7 @@ namespace SoncaAudioInspector
 
         private AudioRouting _audioRoutingView;
         private VisualAI _visualAIView;
+        private CheckingConfig _checkingConfig;
 
         public MainWindow()
         {
@@ -70,6 +107,57 @@ namespace SoncaAudioInspector
 
             // Default to Audio Routing tab
             SwitchToTab("AudioRouting");
+
+            // Load configurations for models selection
+            LoadCheckingConfig();
+        }
+
+        private void LoadCheckingConfig()
+        {
+            try
+            {
+                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "checking_config.json");
+                if (File.Exists(configPath))
+                {
+                    string json = File.ReadAllText(configPath);
+                    _checkingConfig = JsonSerializer.Deserialize<CheckingConfig>(json);
+                    
+                    if (_checkingConfig != null && _checkingConfig.models != null)
+                    {
+                        ComboModels.Items.Clear();
+                        foreach (var m in _checkingConfig.models)
+                        {
+                            ComboModels.Items.Add(m.model);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Silence config load issues or log if needed
+            }
+        }
+
+        private void ComboModels_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (ComboModels.SelectedItem == null || _checkingConfig == null) return;
+            
+            string selectedModelName = ComboModels.SelectedItem.ToString();
+            var modelConfig = _checkingConfig.models.FirstOrDefault(m => m.model == selectedModelName);
+            if (modelConfig == null || modelConfig.testItems?.InOut?.Devices == null) return;
+
+            var devices = modelConfig.testItems.InOut.Devices;
+            var inputs = devices.Input ?? new Dictionary<string, string>();
+            var outputs = devices.Output ?? new Dictionary<string, string>();
+
+            bool success = _audioRoutingView.ApplyModelDevices(inputs, outputs, out string missingMessage);
+            if (!success)
+            {
+                ModernMessageBox.Show(this, 
+                    $"Chưa đủ các ngõ vào và ra đã định nghĩa\n\nThiếu ngõ:\n{missingMessage}", 
+                    "Không Đạt Cấu Hình Thiết Bị", 
+                    ModernMessageBox.MessageBoxType.Warning);
+            }
         }
 
         private bool _isLoggingOut = false;

@@ -81,8 +81,11 @@
                         <Button Name="BtnTabVisualAI" Content="Ngoại Quan AI" Style="{StaticResource TabButtonStyle}" Margin="10,0,0,0" Click="BtnTabVisualAI_Click"/>
                     </StackPanel>
 
-                    <!-- Serial Number Inputs (Right side) -->
+                    <!-- Serial Number & Model Inputs (Right side) -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Model:" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox Name="ComboModels" Width="130" Height="28" Style="{StaticResource DarkComboBoxStyle}" VerticalAlignment="Center" Margin="0,0,20,0" SelectionChanged="ComboModels_SelectionChanged"/>
+
                         <TextBlock Text="Serial Number:" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <TextBox Name="TxtSerialNumber" Width="180" Height="28" Background="#18181B" BorderBrush="#3F3F46" Foreground="White" Padding="6,2" VerticalAlignment="Center"/>
                         

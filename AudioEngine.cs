@@ -67,7 +67,8 @@ namespace SoncaAudioInspector
             SignalType signalType, 
             double frequency, 
             double durationSeconds,
-            Action<float[]> realTimeRecordedCallback = null)
+            Action<float[]> realTimeRecordedCallback = null,
+            bool forceSaveFiles = false)
         {
             Stop();
 
@@ -171,7 +172,7 @@ namespace SoncaAudioInspector
             lock (_lock)
             {
                 // Save output and input files if testing flag is enabled
-                if (flagSaveFile && !flagGenerateSine)
+                if (flagSaveFile && (!flagGenerateSine || forceSaveFiles))
                 {
                     try
                     {

@@ -100,7 +100,7 @@ namespace SoncaAudioInspector
         {
             try
             {
-                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "routing_value.json");
                 if (File.Exists(path))
                 {
                     string json = File.ReadAllText(path);
@@ -136,7 +136,7 @@ namespace SoncaAudioInspector
                     UseUsbPlayback = RadioUsbPlayback.IsChecked == true
                 };
                 string json = JsonSerializer.Serialize(config);
-                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "routing_value.json");
                 File.WriteAllText(path, json);
             }
             catch { }
@@ -242,6 +242,106 @@ namespace SoncaAudioInspector
             {
                 AppendLog("Error", $"Failed to list audio devices: {ex.Message}");
             }
+        }
+
+        public bool ApplyModelDevices(Dictionary<string, string> inputs, Dictionary<string, string> outputs, out string missingMessage)
+        {
+            // Note: Per user request:
+            // "Input" of device configuration (inputs param) maps to PlaybackOut (playbackDevs)
+            // "Output" of device configuration (outputs param) maps to RecordingIn (recordingDevs)
+            var playbackDevs = _audioEngine.GetPlaybackDevices();
+            var recordingDevs = _audioEngine.GetRecordingDevices();
+
+            List<string> missing = new List<string>();
+
+            // Check config inputs against playback devices
+            Dictionary<string, MMDevice> matchedPlaybacks = new Dictionary<string, MMDevice>();
+            foreach (var kvp in inputs)
+            {
+                string key = kvp.Key;
+                string targetName = kvp.Value;
+                var match = playbackDevs.FirstOrDefault(d => d.FriendlyName.IndexOf(targetName, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (match == null)
+                {
+                    missing.Add($"- Ngõ vào thiết bị (Playback Out): {key} (yêu cầu chứa \"{targetName}\")");
+                }
+                else
+                {
+                    matchedPlaybacks[key] = match;
+                }
+            }
+
+            // Check config outputs against recording devices
+            Dictionary<string, MMDevice> matchedRecordings = new Dictionary<string, MMDevice>();
+            foreach (var kvp in outputs)
+            {
+                string key = kvp.Key;
+                string targetName = kvp.Value;
+                var match = recordingDevs.FirstOrDefault(d => d.FriendlyName.IndexOf(targetName, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (match == null)
+                {
+                    missing.Add($"- Ngõ ra thiết bị (Recording In): {key} (yêu cầu chứa \"{targetName}\")");
+                }
+                else
+                {
+                    matchedRecordings[key] = match;
+                }
+            }
+
+            if (missing.Count > 0)
+            {
+                missingMessage = string.Join("\n", missing);
+                return false;
+            }
+
+            missingMessage = null;
+
+            // Load matched recording into ComboRecording
+            if (matchedRecordings.Count > 0)
+            {
+                var firstRecording = matchedRecordings.Values.First();
+                var item = ComboRecording.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.ID == firstRecording.ID);
+                if (item != null)
+                {
+                    ComboRecording.SelectedItem = item;
+                    AppendLog("ModelSelect", $"Auto-selected Recording In: {item.DisplayName}");
+                }
+            }
+
+            // Load matched playbacks into ComboPlayback and ComboBluetooth
+            foreach (var kvp in matchedPlaybacks)
+            {
+                var dev = kvp.Value;
+                string key = kvp.Key;
+                
+                bool isBluetooth = key.IndexOf("Bluetooth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   dev.FriendlyName.IndexOf("Bluetooth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   dev.FriendlyName.IndexOf("Hands-Free", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   dev.FriendlyName.IndexOf("Wireless", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   dev.FriendlyName.IndexOf("Stereo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   dev.FriendlyName.IndexOf("BTH", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (isBluetooth)
+                {
+                    var item = ComboBluetooth.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.ID == dev.ID);
+                    if (item != null)
+                    {
+                        ComboBluetooth.SelectedItem = item;
+                        AppendLog("ModelSelect", $"Auto-selected Bluetooth Out: {item.DisplayName}");
+                    }
+                }
+                else
+                {
+                    var item = ComboPlayback.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.ID == dev.ID);
+                    if (item != null)
+                    {
+                        ComboPlayback.SelectedItem = item;
+                        AppendLog("ModelSelect", $"Auto-selected Playback Out: {item.DisplayName}");
+                    }
+                }
+            }
+
+            return true;
         }
 
         private void InitCharts()

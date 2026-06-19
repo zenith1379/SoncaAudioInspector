@@ -111,12 +111,12 @@ namespace SoncaAudioInspector
 
             if (AudioEngine.flagGenerateSine)
             {
-                double toneDuration = 0.5; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
+                double toneDuration = 0.8; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
                 foreach (var freq in sweepFrequencies)
                 {
                     if (_isCancelled) return;
 
-                    OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
+                    //OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
 
                     OnLogMessage?.Invoke("Step 2", $"Testing frequency: {freq} Hz");
                     OnTestSubstatusChanged?.Invoke("Freq", $"Testing: {freq} Hz");
@@ -275,7 +275,7 @@ namespace SoncaAudioInspector
             OnTestSubstatusChanged?.Invoke("THD", "Testing 1 kHz Tone (1.5s)...");
 
             float[] thdRecord = await _audioEngine.PlayAndRecordAsync(
-                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5); // 1.5 seconds
+                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5, null, true); // 1.5 seconds, save files enabled
 
             // Detect clipping
             float maxThdSample = thdRecord.Length > 0 ? thdRecord.Select(Math.Abs).Max() : 0f;

@@ -7,32 +7,25 @@
           "Description": "Test FEQ and THD",
           "Devices": {
             "Input": {
-              "Bluetooth In": "MI SAM",
-              "SoundCard In": "MI SAM"
+              "Bluetooth": "MI SAM",
+              "SoundCard In": "MI_SAM"
             },
             "Output": {
-              "6.5 Out": "FastTrack Pro",
-              "SoundCard Out": "MI SAM"
+              "6.5 Jack": "FastTrack Pro"
             }
           },
           "Tests": [
             {
               "id": "IO001",
-              "name": "Bluetooth In -> SoundCard Out",
-              "input": "Bluetooth In",
-              "output": "SoundCard Out"
+              "name": "Bluetooth In -> 6.5 Jack Out",
+              "Playback Out": "Bluetooth",
+              "Recording In": "6.5 Jack"
             },
             {
               "id": "IO002",
-              "name": "Bluetooth In -> 6.5 Out",
-              "input": "Bluetooth In",
-              "output": "6.5 Out"
-            },
-            {
-              "id": "IO003",
-              "name": "SoundCard In -> SoundCard Out",
-              "input": "SoundCard In",
-              "output": "SoundCard Out"
+              "name": "SoundCard In -> 6.5 Jack Out",
+              "Playback Out": "SoundCard In",
+              "Recording In": "6.5 Jack"
             }
           ]
         }
