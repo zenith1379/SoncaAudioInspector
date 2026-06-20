@@ -5,6 +5,7 @@
       "testItems": {
         "InOut": {
           "Description": "Test FEQ and THD",
+		  "Description 2": "Chua du ngo",
           "Devices": {
             "Input": {
               "SoundCard": "MI_SAM",
@@ -15,16 +16,16 @@
             }
           },
           "Tests": [
-            {
-              "id": "IO001",
-              "name": "SoundCard In -> 6.5 Jack Out",
-              "Playback Out": "SoundCard",
-              "Recording In": "6.5 Jack"
-            },
 			{
-              "id": "IO002",
+              "id": "IO001",
               "name": "MIC 1 In -> 6.5 Jack Out",
               "Playback Out": "MIC 1",
+              "Recording In": "6.5 Jack"
+            },
+            {
+              "id": "IO002",
+              "name": "SoundCard In -> 6.5 Jack Out",
+              "Playback Out": "SoundCard",
               "Recording In": "6.5 Jack"
             }
           ]
