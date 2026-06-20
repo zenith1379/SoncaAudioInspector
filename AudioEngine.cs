@@ -26,6 +26,7 @@ namespace SoncaAudioInspector
         // Volume and Gain controls (0.0 to 1.0 / 2.0)
         public double PlaybackVolume { get; set; } = 0.8;
         public double RecordingGain { get; set; } = 1.0;
+        public int RecordingSampleRate { get; private set; } = 48000;
 
         public AudioEngine()
         {
@@ -81,6 +82,7 @@ namespace SoncaAudioInspector
             _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             // Use the actual device format (usually 2 channels, 48000Hz) to prevent Windows shared mode resampler bugs
             var deviceFormat = _wasapiCapture.WaveFormat;
+            RecordingSampleRate = deviceFormat.SampleRate;
             int devChannels = deviceFormat.Channels;
             
             _wasapiCapture.DataAvailable += (s, e) =>

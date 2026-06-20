@@ -287,13 +287,13 @@ namespace SoncaAudioInspector
             OnTestSubstatusChanged?.Invoke("THD", "Analyzing FFT...");
 
             // Calculate THD on the last 500ms captured buffer
-            int sampleRateThd = 48000;
+            int sampleRateThd = _audioEngine.RecordingSampleRate;
             int analyzeCountThd = (int)(sampleRateThd * 0.5); // 500ms
             int thdStart = Math.Max(0, thdRecord.Length - analyzeCountThd);
             float[] thdBuffer = thdRecord.Skip(thdStart).ToArray();
 
             double[] frequencies;
-            var thdCalc = DspProcessor.CalculateThd(thdBuffer, 48000, out frequencies);
+            var thdCalc = DspProcessor.CalculateThd(thdBuffer, sampleRateThd, out frequencies);
 
             OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, thdCalc.thdPercent);
 
@@ -379,7 +379,7 @@ namespace SoncaAudioInspector
 
             // Compute FFT on the noise buffer to show hum and switching noise
             double[] frequencies;
-            var thdCalc = DspProcessor.CalculateThd(noiseBuffer, 48000, out frequencies);
+            var thdCalc = DspProcessor.CalculateThd(noiseBuffer, _audioEngine.RecordingSampleRate, out frequencies);
 
             // Trigger the spectrum ready event to draw the noise FFT chart (pass 0.0 for THD indicator)
             OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, 0.0);
