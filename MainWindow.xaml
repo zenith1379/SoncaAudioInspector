@@ -4,491 +4,112 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SoncaAudioInspector"
-        xmlns:ScottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         mc:Ignorable="d"
-        Title="Sonca Audio Inspector - Professional Audio Testing" Height="780" Width="1200"
+        Title="Sonca Audio Inspector" Height="780" Width="1200"
         Background="#0E0E10" Foreground="#E4E4E7" WindowStartupLocation="CenterScreen">
     
-    <Window.Resources>
-        <!-- Modern ScrollViewer Style -->
-        <Style TargetType="ScrollBar">
-            <Setter Property="Background" Value="#18181B"/>
-            <Setter Property="Width" Value="8"/>
-        </Style>
-
-        <!-- Status Circle Icons -->
-        <Style x:Key="StatusCircleStyle" TargetType="Ellipse">
-            <Setter Property="Width" Value="14"/>
-            <Setter Property="Height" Value="14"/>
-            <Setter Property="Margin" Value="0,0,10,0"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Waiting">
-                    <Setter Property="Fill" Value="Transparent"/>
-                    <Setter Property="Stroke" Value="#52525B"/>
-                    <Setter Property="StrokeThickness" Value="2"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Running">
-                    <Setter Property="Fill" Value="#3B82F6"/>
-                    <Setter Property="Stroke" Value="#60A5FA"/>
-                    <Setter Property="StrokeThickness" Value="1"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Pass">
-                    <Setter Property="Fill" Value="#10B981"/>
-                    <Setter Property="Stroke" Value="Transparent"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Fail">
-                    <Setter Property="Fill" Value="#EF4444"/>
-                    <Setter Property="Stroke" Value="Transparent"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="StatusTextStyle" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Waiting">
-                    <Setter Property="Foreground" Value="#71717A"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Running">
-                    <Setter Property="Foreground" Value="#60A5FA"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Pass">
-                    <Setter Property="Foreground" Value="#34D399"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Status}" Value="Fail">
-                    <Setter Property="Foreground" Value="#F87171"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="DarkComboBoxStyle" TargetType="ComboBox">
-            <Setter Property="Background" Value="#18181B"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderBrush" Value="#27272A"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="30"/>
-                            </Grid.ColumnDefinitions>
-
-                            <Border x:Name="Border" 
-                                    Grid.ColumnSpan="2"
-                                    Background="{TemplateBinding Background}" 
-                                    BorderBrush="{TemplateBinding BorderBrush}" 
-                                    BorderThickness="{TemplateBinding BorderThickness}" 
-                                    CornerRadius="6"/>
-
-                            <ContentPresenter Grid.Column="0" 
-                                              Margin="{TemplateBinding Padding}"
-                                              Content="{TemplateBinding SelectionBoxItem}" 
-                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
-
-                            <ToggleButton Grid.Column="1" 
-                                          Focusable="False"
-                                          IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border Background="Transparent">
-                                            <Path Fill="#A1A1AA" Data="M 0 0 L 3.5 4 L 7 0 Z" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-
-                            <Popup x:Name="PART_Popup" 
-                                   Grid.ColumnSpan="2"
-                                   IsOpen="{TemplateBinding IsDropDownOpen}" 
-                                   Placement="Bottom"
-                                   AllowsTransparency="True"
-                                   Focusable="False"
-                                   PopupAnimation="Slide">
-                                <Grid x:Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                    <Border x:Name="DropDownBorder" Background="#18181B" BorderBrush="#27272A" BorderThickness="1" CornerRadius="6" Margin="0,2,0,0">
-                                        <ScrollViewer Margin="4" SnapsToDevicePixels="True">
-                                            <ItemsPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" KeyboardNavigation.DirectionalNavigation="Contained" />
-                                        </ScrollViewer>
-                                    </Border>
-                                </Grid>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="HasItems" Value="false">
-                                <Setter TargetName="DropDownBorder" Property="Height" Value="95"/>
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="true">
-                                <Setter Property="BorderBrush" Value="#3B82F6"/>
-                            </Trigger>
-                            <Trigger Property="IsDropDownOpen" Value="true">
-                                <Setter Property="BorderBrush" Value="#3B82F6"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <!-- Custom Flat Button Style to handle disabled state coloring -->
-        <Style x:Key="ModernButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#27272A"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="10"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#3F3F46"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#1F1F22"/>
-                    <Setter Property="Foreground" Value="#52525B"/>
-                    <Setter Property="Cursor" Value="Arrow"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Styled Green Button -->
-        <Style x:Key="GreenButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#10B981"/>
-            <Setter Property="Foreground" Value="Black"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#34D399"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#1F1F22"/>
-                    <Setter Property="Foreground" Value="#52525B"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Styled Blue Button -->
-        <Style x:Key="BlueButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#3B82F6"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#60A5FA"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#1F1F22"/>
-                    <Setter Property="Foreground" Value="#52525B"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Styled Red Button -->
-        <Style x:Key="RedButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#EF4444"/>
-            <Setter Property="Foreground" Value="Black"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#F87171"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#1F1F22"/>
-                    <Setter Property="Foreground" Value="#52525B"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-    </Window.Resources>
-
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="65"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/> <!-- Header Section containing title and tabs -->
+            <RowDefinition Height="*"/>    <!-- Content Area -->
         </Grid.RowDefinitions>
 
         <!-- Header Bar -->
         <Border Grid.Row="0" Background="#18181B" BorderBrush="#27272A" BorderThickness="0,0,0,1">
-            <Grid Margin="20,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <StackPanel>
+                <!-- Title & Control Row -->
+                <Grid Margin="20,10,20,5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="SONCA" FontSize="20" FontWeight="Black" Foreground="#10B981"/>
-                    <TextBlock Text=" AUDIO INSPECTOR" FontSize="20" FontWeight="Light" Foreground="#F4F4F5"/>
-                </StackPanel>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="SONCA" FontSize="20" FontWeight="Black" Foreground="#10B981"/>
+                        <TextBlock Text=" AUDIO INSPECTOR" FontSize="20" FontWeight="Light" Foreground="#F4F4F5"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="#27272A" Padding="10,6" CornerRadius="6" Margin="0,0,10,0">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="8" Height="8" Fill="#10B981" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="ASIO / WASAPI Ready" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-                    <Button Name="BtnToggleFullscreen" Click="BtnToggleFullscreen_Click" Width="30" Height="30" Background="#27272A" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" Margin="0,0,10,0">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="15"/>
-                            </Style>
-                        </Button.Resources>
-                        ⛶
-                    </Button>
-                    <Button Name="BtnCloseApp" Click="BtnCloseApp_Click" Width="30" Height="30" Background="#EF4444" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="15"/>
-                            </Style>
-                        </Button.Resources>
-                        ✕
-                    </Button>
-                </StackPanel>
-            </Grid>
+                    <!-- Staff User Info & Logout Button (Aligned Right) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,15,0">
+                        <TextBlock Name="TxtStaffWelcome" Text="Xin chào, Admin" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <Button Name="BtnLogout" Content="Đăng xuất" Click="BtnLogout_Click" Background="#EF4444" Foreground="White" BorderThickness="0" FontSize="11" FontWeight="SemiBold" Padding="10,4" Cursor="Hand">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="4"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Background="#27272A" Padding="10,6" CornerRadius="6" Margin="0,0,10,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="8" Height="8" Fill="#10B981" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="ASIO / WASAPI Ready" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <Button Name="BtnToggleFullscreen" Click="BtnToggleFullscreen_Click" Width="30" Height="30" Background="#27272A" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" Margin="0,0,10,0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="15"/>
+                                </Style>
+                            </Button.Resources>
+                            ⛶
+                        </Button>
+                        <Button Name="BtnCloseApp" Click="BtnCloseApp_Click" Width="30" Height="30" Background="#EF4444" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="15"/>
+                                </Style>
+                            </Button.Resources>
+                            ✕
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Serial Number Row & Tab Buttons Row -->
+                <Grid Margin="20,5,20,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Tab Buttons (Left side) -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Name="BtnTabAudioRouting" Content="Audio Routing" Style="{StaticResource TabButtonStyle}" Click="BtnTabAudioRouting_Click"/>
+                        <Button Name="BtnTabVisualAI" Content="Ngoại Quan AI" Style="{StaticResource TabButtonStyle}" Margin="10,0,0,0" Click="BtnTabVisualAI_Click"/>
+                    </StackPanel>
+
+                    <!-- Serial Number & Model Inputs (Right side) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Model:" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox Name="ComboModels" Width="130" Height="28" Style="{StaticResource DarkComboBoxStyle}" VerticalAlignment="Center" Margin="0,0,20,0" SelectionChanged="ComboModels_SelectionChanged"/>
+
+                        <TextBlock Text="Serial Number:" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox Name="TxtSerialNumber" Width="180" Height="28" Background="#18181B" BorderBrush="#3F3F46" Foreground="White" Padding="6,2" VerticalAlignment="Center"/>
+                        
+                        <Button Name="BtnScan" Content="Scan" Click="BtnScan_Click" Background="#27272A" Foreground="White" BorderThickness="0" FontSize="12" Padding="12,4" Height="28" Cursor="Hand" Margin="6,0,0,0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="4"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+
+                        <Button Name="BtnCheckStatus" Content="Check Status" Click="BtnCheckStatus_Click" Background="#3B82F6" Foreground="White" BorderThickness="0" FontSize="12" Padding="12,4" Height="28" Cursor="Hand" Margin="6,0,0,0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="4"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
         </Border>
 
         <!-- Main Workspace Area -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="360"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Sidebar Controls & Setup -->
-            <Border Grid.Column="0" Background="#121214" BorderBrush="#27272A" BorderThickness="0,0,1,0" Padding="20">
-                <ScrollViewer Name="SidebarScrollViewer" VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <!-- AUDIO ROUTING SETUP -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="AUDIO ROUTING SETUP" FontSize="11" FontWeight="Bold" Foreground="#71717A" VerticalAlignment="Center"/>
-                            <Button Name="BtnRefreshDevices" Content="↻" Click="BtnRefreshDevices_Click" Style="{StaticResource ModernButtonStyle}" Grid.Column="1" Width="26" Height="26" Padding="0" FontSize="14" ToolTip="Refresh Audio Devices" VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <!-- PLAYBACK OUT REGION -->
-                        <Border Background="#1A1A1E" CornerRadius="6" Padding="12" Margin="0,0,0,15" BorderBrush="#27272A" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock Text="PLAYBACK OUT" FontSize="11" FontWeight="Bold" Foreground="#10B981" Margin="0,0,0,10"/>
-
-                                <!-- USB Playback -->
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                    <RadioButton Name="RadioUsbPlayback" IsChecked="True" GroupName="PlaybackSource" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock Text="USB Playback Out (MI_LCD / MI_SAM)" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <ComboBox Name="ComboPlayback" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,10" Height="35">
-                                    <ComboBox.Resources>
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
-                                        <Style TargetType="ComboBoxItem">
-                                            <Setter Property="Background" Value="#18181B"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                        </Style>
-                                    </ComboBox.Resources>
-                                </ComboBox>
-
-                                <!-- Bluetooth Playback -->
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                    <RadioButton Name="RadioBtPlayback" GroupName="PlaybackSource" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock Text="Bluetooth Playback Out" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <ComboBox Name="ComboBluetooth" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,12" Height="35">
-                                    <ComboBox.Resources>
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
-                                        <Style TargetType="ComboBoxItem">
-                                            <Setter Property="Background" Value="#18181B"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                        </Style>
-                                    </ComboBox.Resources>
-                                </ComboBox>
-
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Playback Volume" FontSize="11" Foreground="#71717A"/>
-                                    <TextBlock Name="LblPlaybackVolume" Grid.Column="1" Text="80%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
-                                </Grid>
-                                <Slider Name="SliderPlaybackVolume" Minimum="0" Maximum="100" Value="80" ValueChanged="SliderPlaybackVolume_ValueChanged" Margin="0,0,0,5"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- RECORDING IN REGION -->
-                        <Border Background="#1A1A1E" CornerRadius="6" Padding="12" Margin="0,0,0,15" BorderBrush="#27272A" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock Text="RECORDING IN" FontSize="11" FontWeight="Bold" Foreground="#3B82F6" Margin="0,0,0,10"/>
-
-                                <TextBlock Text="Recording In (SONCA)" FontSize="11" Foreground="#A1A1AA" Margin="0,0,0,4"/>
-                                <ComboBox Name="ComboRecording" Style="{StaticResource DarkComboBoxStyle}" DisplayMemberPath="DisplayName" Margin="0,0,0,12" Height="35">
-                                    <ComboBox.Resources>
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3B82F6" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#18181B" />
-                                        <Style TargetType="ComboBoxItem">
-                                            <Setter Property="Background" Value="#18181B"/>
-                                            <Setter Property="Foreground" Value="White"/>
-                                        </Style>
-                                    </ComboBox.Resources>
-                                </ComboBox>
-
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Recording Gain" FontSize="11" Foreground="#71717A"/>
-                                    <TextBlock Name="LblRecordingGain" Grid.Column="1" Text="100%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
-                                </Grid>
-                                <Slider Name="SliderRecordingGain" Minimum="0" Maximum="200" Value="100" ValueChanged="SliderRecordingGain_ValueChanged" Margin="0,0,0,5"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Test Configuration Limits -->
-                        <TextBlock Text="SPECIFICATION LIMITS" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock Text="Freq Tol (± dB)" FontSize="11" Foreground="#A1A1AA" Margin="0,0,0,4"/>
-                                <TextBox Name="TxtFreqTolerance" Text="3.0" Background="#18181B" BorderBrush="#27272A" Foreground="White" Padding="8,6" Height="32"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                                <TextBlock Text="THD Limit (%)" FontSize="11" Foreground="#A1A1AA" Margin="0,0,0,4"/>
-                                <TextBox Name="TxtThdLimit" Text="0.5" Background="#18181B" BorderBrush="#27272A" Foreground="White" Padding="8,6" Height="32"/>
-                            </StackPanel>
-                        </Grid>
-
-
-                        <Separator Background="#27272A" Margin="0,0,0,20"/>
-
-                        <!-- Action Buttons -->
-                        <Grid Margin="0,0,0,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Name="BtnStart" Content="START AUTO TEST" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,10,0"/>
-                            <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Style="{StaticResource RedButtonStyle}" FontWeight="Bold" Width="80" Height="42" IsEnabled="False"/>
-                        </Grid>
-                        <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38" Visibility="Collapsed"/>
-
-                        <!-- Automated Checklist -->
-                        <TextBlock Text="TEST SEQUENCE STATUS" FontSize="11" FontWeight="Bold" Foreground="#71717A" Margin="0,0,0,12"/>
-                        <ItemsControl Name="ListSteps">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border BorderBrush="#1F1F23" BorderThickness="0,0,0,1" Padding="0,10">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Ellipse Grid.Column="0" Style="{StaticResource StatusCircleStyle}" VerticalAlignment="Center"/>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Name}" Style="{StaticResource StatusTextStyle}" FontSize="13"/>
-                                                <TextBlock Text="{Binding Details}" Foreground="#71717A" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
-
-            <!-- Right Panel (Charts & Verdict) -->
-            <Grid Grid.Column="1">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <!-- Plot Charts Panel -->
-                <Grid Grid.Row="0" Margin="15,15,15,5">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- Frequency Response Chart -->
-                    <Border Name="BorderFreqChart" Grid.Row="0" Background="#121214" BorderBrush="#27272A" BorderThickness="2" CornerRadius="8" Margin="0,0,0,15" Padding="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0" Margin="10,0,0,5">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="FREQUENCY RESPONSE ANALYSIS (20 Hz - 20 kHz)" FontSize="12" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center"/>
-                                <TextBlock Name="TxtFreqStatus" Grid.Column="1" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                            </Grid>
-                            <ScottPlot:WpfPlot Name="PlotFreqResponse" Grid.Row="1"/>
-                        </Grid>
-                    </Border>
-
-                    <!-- THD FFT Spectrum Chart -->
-                    <Border Name="BorderThdChart" Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="2" CornerRadius="8" Padding="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0" Margin="10,0,0,5">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="THD ANALYSIS - FFT SPECTRUM (1 kHz Sine Response)" FontSize="12" FontWeight="Bold" Foreground="#3B82F6" VerticalAlignment="Center"/>
-                                <TextBlock Name="TxtThdStatus" Grid.Column="1" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                            </Grid>
-                            <ScottPlot:WpfPlot Name="PlotThdFft" Grid.Row="1"/>
-                        </Grid>
-                    </Border>
-                </Grid>
-
-                <!-- Footer / Verdict Banner -->
-                <Border Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="0,1,0,0" Height="85">
-                    <Grid Margin="15,10">
-                        <!-- Overall Verdict Banner -->
-                        <Border Name="BorderVerdict" Background="#18181B" BorderThickness="2" BorderBrush="#27272A" CornerRadius="8">
-                            <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="OVERALL RESULT" FontSize="11" FontWeight="Bold" Foreground="#71717A" HorizontalAlignment="Center"/>
-                                    <TextBlock Name="LblVerdict" Text="WAITING..." FontSize="28" FontWeight="Black" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </Grid>
-                </Border>
-            </Grid>
-        </Grid>
+        <ContentControl Name="MainContentArea" Grid.Row="1"/>
     </Grid>
 </Window>

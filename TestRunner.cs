@@ -116,7 +116,7 @@ namespace SoncaAudioInspector
                 {
                     if (_isCancelled) return;
 
-                    OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
+                    //OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
 
                     OnLogMessage?.Invoke("Step 2", $"Testing frequency: {freq} Hz");
                     OnTestSubstatusChanged?.Invoke("Freq", $"Testing: {freq} Hz");
@@ -275,7 +275,7 @@ namespace SoncaAudioInspector
             OnTestSubstatusChanged?.Invoke("THD", "Testing 1 kHz Tone (1.5s)...");
 
             float[] thdRecord = await _audioEngine.PlayAndRecordAsync(
-                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5); // 1.5 seconds
+                playbackDevice, recordingDevice, SignalType.Sine, 1000, 1.5, null, true); // 1.5 seconds, save files enabled
 
             // Detect clipping
             float maxThdSample = thdRecord.Length > 0 ? thdRecord.Select(Math.Abs).Max() : 0f;
@@ -287,13 +287,13 @@ namespace SoncaAudioInspector
             OnTestSubstatusChanged?.Invoke("THD", "Analyzing FFT...");
 
             // Calculate THD on the last 500ms captured buffer
-            int sampleRateThd = 48000;
+            int sampleRateThd = _audioEngine.RecordingSampleRate;
             int analyzeCountThd = (int)(sampleRateThd * 0.5); // 500ms
             int thdStart = Math.Max(0, thdRecord.Length - analyzeCountThd);
             float[] thdBuffer = thdRecord.Skip(thdStart).ToArray();
 
             double[] frequencies;
-            var thdCalc = DspProcessor.CalculateThd(thdBuffer, 48000, out frequencies);
+            var thdCalc = DspProcessor.CalculateThd(thdBuffer, sampleRateThd, out frequencies);
 
             OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, thdCalc.thdPercent);
 
@@ -379,7 +379,7 @@ namespace SoncaAudioInspector
 
             // Compute FFT on the noise buffer to show hum and switching noise
             double[] frequencies;
-            var thdCalc = DspProcessor.CalculateThd(noiseBuffer, 48000, out frequencies);
+            var thdCalc = DspProcessor.CalculateThd(noiseBuffer, _audioEngine.RecordingSampleRate, out frequencies);
 
             // Trigger the spectrum ready event to draw the noise FFT chart (pass 0.0 for THD indicator)
             OnThdSpectrumReady?.Invoke(frequencies, thdCalc.magnitudes, 0.0);

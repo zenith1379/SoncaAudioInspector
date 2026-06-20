@@ -26,6 +26,7 @@ namespace SoncaAudioInspector
         // Volume and Gain controls (0.0 to 1.0 / 2.0)
         public double PlaybackVolume { get; set; } = 0.8;
         public double RecordingGain { get; set; } = 1.0;
+        public int RecordingSampleRate { get; private set; } = 48000;
 
         public AudioEngine()
         {
@@ -67,7 +68,8 @@ namespace SoncaAudioInspector
             SignalType signalType, 
             double frequency, 
             double durationSeconds,
-            Action<float[]> realTimeRecordedCallback = null)
+            Action<float[]> realTimeRecordedCallback = null,
+            bool forceSaveFiles = false)
         {
             Stop();
 
@@ -76,10 +78,11 @@ namespace SoncaAudioInspector
             int sampleRate = 48000; // Standard professional audio sample rate
             int channels = 1;
 
-            // Setup recording
-            _wasapiCapture = new WasapiCapture(recordingDevice);
+            // Setup recording (using event sync with 150ms latency buffer)
+            _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             // Use the actual device format (usually 2 channels, 48000Hz) to prevent Windows shared mode resampler bugs
             var deviceFormat = _wasapiCapture.WaveFormat;
+            RecordingSampleRate = deviceFormat.SampleRate;
             int devChannels = deviceFormat.Channels;
             
             _wasapiCapture.DataAvailable += (s, e) =>
@@ -155,7 +158,7 @@ namespace SoncaAudioInspector
                 }
             });
 
-            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 60);
+            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 150);
             _wasapiOut.Init(_signalProvider);
 
             // Start capture and playback
@@ -171,7 +174,7 @@ namespace SoncaAudioInspector
             lock (_lock)
             {
                 // Save output and input files if testing flag is enabled
-                if (flagSaveFile && !flagGenerateSine)
+                if (flagSaveFile && (!flagGenerateSine || forceSaveFiles))
                 {
                     try
                     {
@@ -189,7 +192,7 @@ namespace SoncaAudioInspector
                             }
                         }
 
-                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1)))
+                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(deviceFormat.SampleRate, 1)))
                         {
                             float[] recordedArr = _recordedSamples.ToArray();
                             writer.WriteSamples(recordedArr, 0, recordedArr.Length);
@@ -218,8 +221,8 @@ namespace SoncaAudioInspector
             int sampleRate = 48000;
             int channels = 1;
 
-            // Setup recording
-            _wasapiCapture = new WasapiCapture(recordingDevice);
+            // Setup recording (using event sync with 150ms latency buffer)
+            _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             var deviceFormat = _wasapiCapture.WaveFormat;
             int devChannels = deviceFormat.Channels;
             
@@ -283,7 +286,7 @@ namespace SoncaAudioInspector
             var volumeProvider = new VolumeSampleProvider(fileReader);
             volumeProvider.Volume = (float)PlaybackVolume;
 
-            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 60);
+            _wasapiOut = new WasapiOut(playbackDevice, AudioClientShareMode.Shared, false, 150);
             _wasapiOut.Init(volumeProvider);
 
             // Start capture and playback
@@ -307,7 +310,7 @@ namespace SoncaAudioInspector
                         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
                         string recordedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"recorded_file_sweep_{timestamp}.wav");
 
-                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1)))
+                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(deviceFormat.SampleRate, 1)))
                         {
                             float[] recordedArr = _recordedSamples.ToArray();
                             writer.WriteSamples(recordedArr, 0, recordedArr.Length);

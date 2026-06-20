@@ -35,9 +35,15 @@ namespace SoncaAudioInspector
 
             IconSys002.Text = "○";
             IconSys002.Foreground = new SolidColorBrush(Color.FromRgb(113, 113, 122));
-            TxtSys002.Text = "SYS002 - Kiểm tra kết nối thiết bị phần cứng (Đang kiểm tra...)";
+            TxtSys002.Text = "SYS002 - Kiểm tra và tải cấu hình hệ thống (Đang kiểm tra...)";
             ErrorSys002.Visibility = Visibility.Collapsed;
             ErrorSys002.Text = "";
+
+            IconSys003.Text = "○";
+            IconSys003.Foreground = new SolidColorBrush(Color.FromRgb(113, 113, 122));
+            TxtSys003.Text = "SYS003 - Kiểm tra kết nối thiết bị phần cứng (Đang kiểm tra...)";
+            ErrorSys003.Visibility = Visibility.Collapsed;
+            ErrorSys003.Text = "";
 
             await Task.Delay(1200); // Visual breathing room for user to read initial state
 
@@ -85,7 +91,80 @@ namespace SoncaAudioInspector
             await Task.Delay(1000); // Delay between checks so user can read result of SYS001
 
             // ---------------------------------------------------------
-            // SYS002 - Audio Hardware Detection Check
+            // SYS002 - Download checking_config.json
+            // ---------------------------------------------------------
+            bool sys002Pass = false;
+            string sys002Error = "";
+            if (internetPass)
+            {
+                try
+                {
+                    string localPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "checking_config.json");
+                    string url = "http://data.soncamedia.com/firmware/smartbox/audioInspector/checking_config.json";
+
+                    using (var client = new HttpClient())
+                    {
+                        client.Timeout = TimeSpan.FromSeconds(10);
+                        using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                        {
+                            if (response.IsSuccessStatusCode)
+                            {
+                                long? serverLength = response.Content.Headers.ContentLength;
+                                bool needDownload = true;
+
+                                if (System.IO.File.Exists(localPath))
+                                {
+                                    long localLength = new System.IO.FileInfo(localPath).Length;
+                                    if (serverLength.HasValue && serverLength.Value == localLength)
+                                    {
+                                        needDownload = false;
+                                    }
+                                }
+
+                                if (needDownload)
+                                {
+                                    byte[] contentBytes = await response.Content.ReadAsByteArrayAsync();
+                                    System.IO.File.WriteAllBytes(localPath, contentBytes);
+                                }
+
+                                sys002Pass = true;
+                            }
+                            else
+                            {
+                                sys002Error = $"Mã lỗi HTTP: {response.StatusCode}";
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sys002Error = $"Lỗi khi tải hoặc lưu tệp cấu hình: {ex.Message}";
+                }
+            }
+            else
+            {
+                sys002Error = "Bỏ qua do kiểm tra internet không đạt.";
+            }
+
+            if (sys002Pass)
+            {
+                IconSys002.Text = "✔";
+                IconSys002.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // Neon green
+                TxtSys002.Text = "SYS002 - Kiểm tra và tải cấu hình hệ thống (Đạt)";
+            }
+            else
+            {
+                IconSys002.Text = "✘";
+                IconSys002.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // Neon red
+                TxtSys002.Text = "SYS002 - Kiểm tra và tải cấu hình hệ thống (Không Đạt)";
+                ErrorSys002.Text = sys002Error;
+                ErrorSys002.Visibility = Visibility.Visible;
+            }
+
+            await Task.Delay(1000);
+
+            // ---------------------------------------------------------
+            // SYS003 - Audio Hardware Detection Check (Formerly SYS002)
             // ---------------------------------------------------------
             bool hardwarePass = false;
             string hardwareError = "";
@@ -120,23 +199,23 @@ namespace SoncaAudioInspector
 
             if (hardwarePass)
             {
-                IconSys002.Text = "✔";
-                IconSys002.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // Neon green
-                TxtSys002.Text = "SYS002 - Kiểm tra kết nối thiết bị phần cứng (Đạt)";
+                IconSys003.Text = "✔";
+                IconSys003.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // Neon green
+                TxtSys003.Text = "SYS003 - Kiểm tra kết nối thiết bị phần cứng (Đạt)";
             }
             else
             {
-                IconSys002.Text = "✘";
-                IconSys002.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // Neon red
-                TxtSys002.Text = "SYS002 - Kiểm tra kết nối thiết bị phần cứng (Không Đạt)";
-                ErrorSys002.Text = hardwareError;
-                ErrorSys002.Visibility = Visibility.Visible;
+                IconSys003.Text = "✘";
+                IconSys003.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // Neon red
+                TxtSys003.Text = "SYS003 - Kiểm tra kết nối thiết bị phần cứng (Không Đạt)";
+                ErrorSys003.Text = hardwareError;
+                ErrorSys003.Visibility = Visibility.Visible;
             }
 
             // ---------------------------------------------------------
             // Final Decision
             // ---------------------------------------------------------
-            if (internetPass && hardwarePass)
+            if (internetPass && sys002Pass && hardwarePass)
             {
                 LblStatus.Text = "Tất cả các kiểm tra đều đạt! Đang tải giao diện chính...";
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
