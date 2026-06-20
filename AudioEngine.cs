@@ -190,7 +190,7 @@ namespace SoncaAudioInspector
                             }
                         }
 
-                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1)))
+                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(deviceFormat.SampleRate, 1)))
                         {
                             float[] recordedArr = _recordedSamples.ToArray();
                             writer.WriteSamples(recordedArr, 0, recordedArr.Length);
@@ -308,7 +308,7 @@ namespace SoncaAudioInspector
                         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
                         string recordedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"recorded_file_sweep_{timestamp}.wav");
 
-                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1)))
+                        using (var writer = new WaveFileWriter(recordedPath, WaveFormat.CreateIeeeFloatWaveFormat(deviceFormat.SampleRate, 1)))
                         {
                             float[] recordedArr = _recordedSamples.ToArray();
                             writer.WriteSamples(recordedArr, 0, recordedArr.Length);
