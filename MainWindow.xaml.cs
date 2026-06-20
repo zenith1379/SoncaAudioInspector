@@ -144,13 +144,9 @@ namespace SoncaAudioInspector
             
             string selectedModelName = ComboModels.SelectedItem.ToString();
             var modelConfig = _checkingConfig.models.FirstOrDefault(m => m.model == selectedModelName);
-            if (modelConfig == null || modelConfig.testItems?.InOut?.Devices == null) return;
+            if (modelConfig == null || modelConfig.testItems?.InOut == null) return;
 
-            var devices = modelConfig.testItems.InOut.Devices;
-            var inputs = devices.Input ?? new Dictionary<string, string>();
-            var outputs = devices.Output ?? new Dictionary<string, string>();
-
-            bool success = _audioRoutingView.ApplyModelDevices(inputs, outputs, out string missingMessage);
+            bool success = _audioRoutingView.ApplyModelDevices(modelConfig.testItems.InOut, out string missingMessage);
             if (!success)
             {
                 ModernMessageBox.Show(this, 

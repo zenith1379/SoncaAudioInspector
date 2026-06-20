@@ -23,6 +23,12 @@ namespace SoncaAudioInspector
         private List<double> _freqs = new List<double>();
         private List<double> _dbValues = new List<double>();
 
+        private InOutConfig _activeInOutConfig;
+        private List<AutoTestCaseItem> _autoTestCases = new List<AutoTestCaseItem>();
+        private bool _isExecutingAutoSuite = false;
+        private AutoTestCaseItem _currentRunningTestCase = null;
+        private bool? _currentTestSuccess = null;
+
         public AudioRouting()
         {
             InitializeComponent();
@@ -38,6 +44,65 @@ namespace SoncaAudioInspector
             {
                 ListSteps.ItemsSource = Steps.ToList();
                 SidebarScrollViewer.ScrollToEnd();
+
+                if (_isExecutingAutoSuite && _currentRunningTestCase != null)
+                {
+                    var freqStep = Steps.ElementAtOrDefault(1);
+                    if (freqStep != null)
+                    {
+                        if (freqStep.Status == "Waiting")
+                        {
+                            _currentRunningTestCase.FreqStatus = "WAITING";
+                            _currentRunningTestCase.FreqBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122));
+                        }
+                        else if (freqStep.Status == "Running")
+                        {
+                            _currentRunningTestCase.FreqStatus = "RUNNING";
+                            _currentRunningTestCase.FreqBrush = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
+                        }
+                        else if (freqStep.Status == "Pass" || freqStep.Status == "Fail")
+                        {
+                            string details = freqStep.Details;
+                            if (details.Contains("Max Deviation:"))
+                            {
+                                int idx = details.IndexOf("(Limit:");
+                                if (idx > 0) details = details.Substring(0, idx).Trim();
+                            }
+                            _currentRunningTestCase.FreqStatus = $"{freqStep.Status.ToUpper()} ({details})";
+                            _currentRunningTestCase.FreqBrush = freqStep.Status == "Pass" ? 
+                                new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)) : 
+                                new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
+                        }
+                    }
+
+                    var thdStep = Steps.ElementAtOrDefault(2);
+                    if (thdStep != null)
+                    {
+                        if (thdStep.Status == "Waiting")
+                        {
+                            _currentRunningTestCase.ThdStatus = "WAITING";
+                            _currentRunningTestCase.ThdBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122));
+                        }
+                        else if (thdStep.Status == "Running")
+                        {
+                            _currentRunningTestCase.ThdStatus = "RUNNING";
+                            _currentRunningTestCase.ThdBrush = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
+                        }
+                        else if (thdStep.Status == "Pass" || thdStep.Status == "Fail")
+                        {
+                            string details = thdStep.Details;
+                            if (details.Contains("THD:"))
+                            {
+                                int idx = details.IndexOf("(Limit:");
+                                if (idx > 0) details = details.Substring(0, idx).Trim();
+                            }
+                            _currentRunningTestCase.ThdStatus = $"{thdStep.Status.ToUpper()} ({details})";
+                            _currentRunningTestCase.ThdBrush = thdStep.Status == "Pass" ? 
+                                new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)) : 
+                                new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
+                        }
+                    }
+                }
             });
             
             _testRunner.OnLogMessage += (source, msg) => Dispatcher.Invoke(() => AppendLog(source, msg));
@@ -54,7 +119,17 @@ namespace SoncaAudioInspector
                 UpdateThdFftChart(frequencies, magnitudes, thdPercent);
             });
 
-            _testRunner.OnTestCompleted += Success => Dispatcher.Invoke(() => SetFinalVerdict(Success));
+            _testRunner.OnTestCompleted += Success => Dispatcher.Invoke(() => 
+            {
+                if (_isExecutingAutoSuite && _currentRunningTestCase != null)
+                {
+                    _currentTestSuccess = Success;
+                }
+                else
+                {
+                    SetFinalVerdict(Success);
+                }
+            });
 
             _testRunner.OnTestSubstatusChanged += (type, details) => Dispatcher.Invoke(() =>
             {
@@ -244,11 +319,12 @@ namespace SoncaAudioInspector
             }
         }
 
-        public bool ApplyModelDevices(Dictionary<string, string> inputs, Dictionary<string, string> outputs, out string missingMessage)
+        public bool ApplyModelDevices(InOutConfig inOutConfig, out string missingMessage)
         {
-            // Note: Per user request:
-            // "Input" of device configuration (inputs param) maps to PlaybackOut (playbackDevs)
-            // "Output" of device configuration (outputs param) maps to RecordingIn (recordingDevs)
+            _activeInOutConfig = inOutConfig;
+            var inputs = inOutConfig?.Devices?.Input ?? new Dictionary<string, string>();
+            var outputs = inOutConfig?.Devices?.Output ?? new Dictionary<string, string>();
+
             var playbackDevs = _audioEngine.GetPlaybackDevices();
             var recordingDevs = _audioEngine.GetRecordingDevices();
 
@@ -291,6 +367,7 @@ namespace SoncaAudioInspector
             if (missing.Count > 0)
             {
                 missingMessage = string.Join("\n", missing);
+                PanelAutoTestList.Visibility = Visibility.Collapsed;
                 return false;
             }
 
@@ -340,6 +417,27 @@ namespace SoncaAudioInspector
                     }
                 }
             }
+
+            // Build test cases list
+            _autoTestCases.Clear();
+            if (inOutConfig?.Tests != null)
+            {
+                foreach (var tc in inOutConfig.Tests)
+                {
+                    _autoTestCases.Add(new AutoTestCaseItem
+                    {
+                        Id = tc.id,
+                        Name = tc.name,
+                        Status = "WAITING",
+                        StatusBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122)),
+                        Config = tc
+                    });
+                }
+            }
+            ListAutoTestCases.ItemsSource = null;
+            ListAutoTestCases.ItemsSource = _autoTestCases;
+
+            PanelAutoTestList.Visibility = Visibility.Visible;
 
             return true;
         }
@@ -624,6 +722,235 @@ namespace SoncaAudioInspector
         private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
         {
             AutoDetectDevices();
+        }
+
+        private void ComboDevice_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (TxtFreqTolerance == null || TxtThdLimit == null) return;
+
+            var usbItem = ComboPlayback.SelectedItem as DeviceItem;
+            var btItem = ComboBluetooth.SelectedItem as DeviceItem;
+
+            string usbName = usbItem?.Device?.FriendlyName ?? usbItem?.DisplayName ?? "";
+            string btName = btItem?.Device?.FriendlyName ?? btItem?.DisplayName ?? "";
+
+            bool hasMic = usbName.IndexOf("MIC 1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          usbName.IndexOf("MIC 2", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          btName.IndexOf("MIC 1", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          btName.IndexOf("MIC 2", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (hasMic)
+            {
+                TxtFreqTolerance.Text = "4.5";
+                TxtThdLimit.Text = "0.8";
+            }
+            else
+            {
+                TxtFreqTolerance.Text = "3.0";
+                TxtThdLimit.Text = "0.5";
+            }
+        }
+
+        private async void BtnStartAutoTest_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeInOutConfig == null || _autoTestCases.Count == 0) return;
+
+            BtnStart.IsEnabled = false;
+            BtnStartAutoTest.IsEnabled = false;
+            BtnCancel.IsEnabled = true;
+            BtnNoiseTest.IsEnabled = false;
+
+            _isExecutingAutoSuite = true;
+            bool suitePassed = true;
+
+            foreach (var test in _autoTestCases)
+            {
+                test.Status = "WAITING";
+                test.StatusBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122));
+                test.FreqStatus = "WAITING";
+                test.FreqBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122));
+                test.ThdStatus = "WAITING";
+                test.ThdBrush = new WpfSolidColorBrush(WpfColor.FromRgb(113, 113, 122));
+            }
+
+            foreach (var test in _autoTestCases)
+            {
+                if (!_isExecutingAutoSuite) break;
+
+                _currentRunningTestCase = test;
+                _currentTestSuccess = null;
+
+                test.Status = "RUNNING";
+                test.StatusBrush = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
+
+                // 1. Map and Select target Playback Out device
+                string playbackConfigKey = test.Config.PlaybackOut; // e.g. "SoundCard"
+                string playbackDeviceName = "";
+                _activeInOutConfig.Devices.Input?.TryGetValue(playbackConfigKey, out playbackDeviceName);
+
+                if (!string.IsNullOrEmpty(playbackDeviceName))
+                {
+                    // Find in ComboPlayback or ComboBluetooth
+                    var usbItem = ComboPlayback.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                    var btItem = ComboBluetooth.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    if (usbItem != null)
+                    {
+                        ComboPlayback.SelectedItem = usbItem;
+                        RadioUsbPlayback.IsChecked = true;
+                        RadioBtPlayback.IsChecked = false;
+                    }
+                    else if (btItem != null)
+                    {
+                        ComboBluetooth.SelectedItem = btItem;
+                        RadioUsbPlayback.IsChecked = false;
+                        RadioBtPlayback.IsChecked = true;
+                    }
+                }
+
+                // 2. Map and Select target Recording In device
+                string recordingConfigKey = test.Config.RecordingIn; // e.g. "6.5 Jack"
+                string recordingDeviceName = "";
+                _activeInOutConfig.Devices.Output?.TryGetValue(recordingConfigKey, out recordingDeviceName);
+
+                if (!string.IsNullOrEmpty(recordingDeviceName))
+                {
+                    var recItem = ComboRecording.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                    if (recItem != null)
+                    {
+                        ComboRecording.SelectedItem = recItem;
+                    }
+                }
+
+                // Reset UI & charts for this individual run
+                _freqs.Clear();
+                _dbValues.Clear();
+                PlotFreqResponse.Plot.Clear();
+                PlotThdFft.Plot.Clear();
+                InitCharts();
+
+                TxtFreqStatus.Text = "";
+                TxtThdStatus.Text = "";
+                BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
+                BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
+                LblVerdict.Text = $"TESTING {test.Id}...";
+                LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21));
+
+                // Update limits in runner
+                if (double.TryParse(TxtFreqTolerance.Text, out double fTol))
+                    _testRunner.FreqResponseToleranceDb = fTol;
+                if (double.TryParse(TxtThdLimit.Text, out double thdLim))
+                    _testRunner.ThdLimitPercent = thdLim;
+
+                var usbDev = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
+                var btDev = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
+                var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDev : btDev;
+                var recordingDevice = (ComboRecording.SelectedItem as DeviceItem)?.Device;
+
+                await _testRunner.RunTestAsync(playbackDevice, recordingDevice);
+
+                // Wait for test to finish and set status
+                bool testPassed = _currentTestSuccess == true;
+                if (!testPassed)
+                {
+                    suitePassed = false;
+                }
+
+                test.Status = testPassed ? "PASS" : "FAIL";
+                test.StatusBrush = testPassed ? new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)) : new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
+            }
+
+            _isExecutingAutoSuite = false;
+            _currentRunningTestCase = null;
+
+            BtnStart.IsEnabled = true;
+            BtnStartAutoTest.IsEnabled = true;
+            BtnCancel.IsEnabled = false;
+            BtnNoiseTest.IsEnabled = true;
+
+            SetFinalVerdict(suitePassed);
+        }
+    }
+
+    public class AutoTestCaseItem : System.ComponentModel.INotifyPropertyChanged
+    {
+        private string _status = "WAITING";
+        private System.Windows.Media.Brush _statusBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(113, 113, 122));
+
+        private string _freqStatus = "WAITING";
+        private System.Windows.Media.Brush _freqBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(113, 113, 122));
+
+        private string _thdStatus = "WAITING";
+        private System.Windows.Media.Brush _thdBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(113, 113, 122));
+
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public TestConfig Config { get; set; }
+
+        public string Status
+        {
+            get => _status;
+            set
+            {
+                _status = value;
+                OnPropertyChanged(nameof(Status));
+            }
+        }
+
+        public System.Windows.Media.Brush StatusBrush
+        {
+            get => _statusBrush;
+            set
+            {
+                _statusBrush = value;
+                OnPropertyChanged(nameof(StatusBrush));
+            }
+        }
+
+        public string FreqStatus
+        {
+            get => _freqStatus;
+            set
+            {
+                _freqStatus = value;
+                OnPropertyChanged(nameof(FreqStatus));
+            }
+        }
+
+        public System.Windows.Media.Brush FreqBrush
+        {
+            get => _freqBrush;
+            set
+            {
+                _freqBrush = value;
+                OnPropertyChanged(nameof(FreqBrush));
+            }
+        }
+
+        public string ThdStatus
+        {
+            get => _thdStatus;
+            set
+            {
+                _thdStatus = value;
+                OnPropertyChanged(nameof(ThdStatus));
+            }
+        }
+
+        public System.Windows.Media.Brush ThdBrush
+        {
+            get => _thdBrush;
+            set
+            {
+                _thdBrush = value;
+                OnPropertyChanged(nameof(ThdBrush));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string name)
+        {
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
         }
     }
 }
