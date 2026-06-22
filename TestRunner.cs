@@ -116,6 +116,11 @@ namespace SoncaAudioInspector
                 {
                     if (_isCancelled) return;
 
+                    if (freq > 10000) 
+                    {
+                        toneDuration = 1.0;
+                    }
+
                     //OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
 
                     OnLogMessage?.Invoke("Step 2", $"Testing frequency: {freq} Hz");

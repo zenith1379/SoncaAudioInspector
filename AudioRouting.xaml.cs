@@ -483,8 +483,8 @@ namespace SoncaAudioInspector
         private void ConfigureLogarithmicXAxis(Plot plot)
         {
             var ticks = new List<Tick>();
-            double[] frequencies = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
-            string[] labels = { "20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k" };
+            double[] frequencies = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000 };
+            string[] labels = { "20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "15k", "20k" };
 
             for (int i = 0; i < frequencies.Length; i++)
             {
