@@ -28,6 +28,7 @@ namespace SoncaAudioInspector
         private bool _isExecutingAutoSuite = false;
         private AutoTestCaseItem _currentRunningTestCase = null;
         private bool? _currentTestSuccess = null;
+        private Dictionary<double, double> _standardCurve = null;
 
         public AudioRouting()
         {
@@ -44,6 +45,12 @@ namespace SoncaAudioInspector
             {
                 ListSteps.ItemsSource = Steps.ToList();
                 SidebarScrollViewer.ScrollToEnd();
+
+                var freqStepGlobal = Steps.ElementAtOrDefault(1);
+                if (freqStepGlobal != null && (freqStepGlobal.Status == "Pass" || freqStepGlobal.Status == "Fail"))
+                {
+                    UpdateFreqResponseChart();
+                }
 
                 if (_isExecutingAutoSuite && _currentRunningTestCase != null)
                 {
@@ -169,6 +176,10 @@ namespace SoncaAudioInspector
             
             // Pre-initialize charts with dark styling
             InitCharts();
+
+            TxtFreqTolerance.TextChanged += (s, e) => CheckAndLoadStandardDevice();
+            TxtThdLimit.TextChanged += (s, e) => CheckAndLoadStandardDevice();
+            CheckAndLoadStandardDevice();
         }
 
         private void LoadConfig()
@@ -520,6 +531,18 @@ namespace SoncaAudioInspector
             line2.LineStyle.Width = 1.5f;
             line2.LineStyle.Pattern = LinePattern.Dashed;
 
+            // Plot standard/reference curve if loaded
+            if (_standardCurve != null && _standardCurve.Count > 0)
+            {
+                double[] xStdLog = _standardCurve.Keys.Select(f => Math.Log10(f)).ToArray();
+                double[] yStdDb = _standardCurve.Values.ToArray();
+
+                var spStd = PlotFreqResponse.Plot.Add.Scatter(xStdLog, yStdDb);
+                spStd.LineWidth = 2f;
+                spStd.Color = ScottPlot.Color.FromHex("#EAB308"); // Yellow/Gold color
+                spStd.MarkerSize = 5f;
+            }
+
             bool isSilent = _dbValues.Count > 0 && _dbValues.All(v => v < -30);
 
             if (_freqs.Count > 0)
@@ -542,6 +565,16 @@ namespace SoncaAudioInspector
                 txt.LabelAlignment = Alignment.MiddleCenter;
             }
 
+            if (_testRunner != null && _testRunner.HasComparedToStandard)
+            {
+                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 10.5);
+                txtDev.LabelFontColor = ScottPlot.Color.FromHex("#EAB308"); // Gold/Yellow
+                txtDev.LabelFontSize = 13;
+                txtDev.LabelBold = true;
+                txtDev.LabelAlignment = Alignment.UpperLeft;
+            }
+
+            PlotFreqResponse.Plot.Legend.IsVisible = false;
             ConfigureLogarithmicXAxis(PlotFreqResponse.Plot);
             PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -12, 12);
             PlotFreqResponse.Refresh();
@@ -598,6 +631,7 @@ namespace SoncaAudioInspector
             BtnStart.IsEnabled = true;
             BtnCancel.IsEnabled = false;
             BtnNoiseTest.IsEnabled = true;
+            BtnSaveStandard.IsEnabled = _freqs.Count > 0;
 
             if (success)
             {
@@ -643,12 +677,16 @@ namespace SoncaAudioInspector
             BtnStart.IsEnabled = false;
             BtnCancel.IsEnabled = true;
             BtnNoiseTest.IsEnabled = false;
+            BtnSaveStandard.IsEnabled = false;
 
             // Update limits in runner
             if (double.TryParse(TxtFreqTolerance.Text, out double fTol))
                 _testRunner.FreqResponseToleranceDb = fTol;
             if (double.TryParse(TxtThdLimit.Text, out double thdLim))
                 _testRunner.ThdLimitPercent = thdLim;
+
+            CheckAndLoadStandardDevice();
+            _testRunner.StandardCurve = _standardCurve;
 
             var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
             var btDevice = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
@@ -705,6 +743,7 @@ namespace SoncaAudioInspector
             {
                 LblPlaybackVolume.Text = $"{(int)e.NewValue}%";
             }
+            CheckAndLoadStandardDevice();
         }
 
         private void SliderRecordingGain_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -717,6 +756,7 @@ namespace SoncaAudioInspector
             {
                 LblRecordingGain.Text = $"{(int)e.NewValue}%";
             }
+            CheckAndLoadStandardDevice();
         }
 
         private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
@@ -749,6 +789,8 @@ namespace SoncaAudioInspector
                 TxtFreqTolerance.Text = "3.0";
                 TxtThdLimit.Text = "0.5";
             }
+
+            CheckAndLoadStandardDevice();
         }
 
         private async void BtnStartAutoTest_Click(object sender, RoutedEventArgs e)
@@ -759,6 +801,7 @@ namespace SoncaAudioInspector
             BtnStartAutoTest.IsEnabled = false;
             BtnCancel.IsEnabled = true;
             BtnNoiseTest.IsEnabled = false;
+            BtnSaveStandard.IsEnabled = false;
 
             _isExecutingAutoSuite = true;
             bool suitePassed = true;
@@ -842,6 +885,9 @@ namespace SoncaAudioInspector
                 if (double.TryParse(TxtThdLimit.Text, out double thdLim))
                     _testRunner.ThdLimitPercent = thdLim;
 
+                CheckAndLoadStandardDevice();
+                _testRunner.StandardCurve = _standardCurve;
+
                 var usbDev = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
                 var btDev = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
                 var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDev : btDev;
@@ -869,6 +915,100 @@ namespace SoncaAudioInspector
             BtnNoiseTest.IsEnabled = true;
 
             SetFinalVerdict(suitePassed);
+        }
+
+        private string GetStandardDeviceFileName()
+        {
+            if (ComboPlayback == null || RadioBtPlayback == null || ComboBluetooth == null || 
+                ComboRecording == null || SliderPlaybackVolume == null || SliderRecordingGain == null || 
+                TxtFreqTolerance == null || TxtThdLimit == null)
+            {
+                return "";
+            }
+
+            string outDevice = ComboPlayback.SelectedItem is DeviceItem pDevice ? pDevice.DisplayName : "UnknownOut";
+            if (RadioBtPlayback.IsChecked == true)
+            {
+                outDevice = ComboBluetooth.SelectedItem is DeviceItem btDevice ? btDevice.DisplayName : "UnknownOut";
+            }
+            string inDevice = ComboRecording.SelectedItem is DeviceItem rDevice ? rDevice.DisplayName : "UnknownIn";
+            double playVol = SliderPlaybackVolume.Value;
+            double recGain = SliderRecordingGain.Value;
+            double tol = 0;
+            double.TryParse(TxtFreqTolerance.Text, out tol);
+            double thdLim = 0;
+            double.TryParse(TxtThdLimit.Text, out thdLim);
+
+            string key = $"{outDevice}_IN_{inDevice}_V_{playVol:F0}_G_{recGain:F0}_T_{tol:F1}_THD_{thdLim:F2}";
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+            {
+                key = key.Replace(c, '_');
+            }
+            key = key.Replace(' ', '_');
+            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"standard_{key}.csv");
+        }
+
+        private void CheckAndLoadStandardDevice()
+        {
+            _standardCurve = null;
+            try
+            {
+                string filePath = GetStandardDeviceFileName();
+                if (string.IsNullOrEmpty(filePath)) return;
+
+                if (System.IO.File.Exists(filePath))
+                {
+                    var curve = new Dictionary<double, double>();
+                    var lines = System.IO.File.ReadAllLines(filePath);
+                    foreach (var line in lines)
+                    {
+                        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("Frequency")) continue;
+                        var parts = line.Split(',');
+                        if (parts.Length >= 2 && double.TryParse(parts[0], out double freq) && double.TryParse(parts[1], out double db))
+                        {
+                            curve[freq] = db;
+                        }
+                    }
+                    if (curve.Count > 0)
+                    {
+                        _standardCurve = curve;
+                    }
+                }
+            }
+            catch { }
+
+            if (PlotFreqResponse != null)
+            {
+                UpdateFreqResponseChart();
+            }
+        }
+
+        private void BtnSaveStandard_Click(object sender, RoutedEventArgs e)
+        {
+            if (_freqs.Count == 0 || _dbValues.Count == 0 || _freqs.Count != _dbValues.Count)
+            {
+                MessageBox.Show("Vui lòng chạy đo FEQ trước khi lưu thiết bị chuẩn!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                string filePath = GetStandardDeviceFileName();
+                using (var writer = new System.IO.StreamWriter(filePath))
+                {
+                    writer.WriteLine("Frequency (Hz),Normalized Level (dBr)");
+                    for (int i = 0; i < _freqs.Count; i++)
+                    {
+                        writer.WriteLine($"{_freqs[i]},{_dbValues[i]:F4}");
+                    }
+                }
+                MessageBox.Show($"Đã lưu thông số thiết bị chuẩn thành công vào file:\n{System.IO.Path.GetFileName(filePath)}", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+                CheckAndLoadStandardDevice();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Lỗi khi lưu thiết bị chuẩn: {ex.Message}", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

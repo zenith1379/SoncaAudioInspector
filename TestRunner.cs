@@ -28,6 +28,10 @@ namespace SoncaAudioInspector
         // Target limits
         public double FreqResponseToleranceDb { get; set; } = 3.0; // +/- 3dB limit
         public double ThdLimitPercent { get; set; } = 0.5; // THD < 0.5% limit
+        public Dictionary<double, double> StandardCurve { get; set; } = null;
+        public double LastMaxDevPercent { get; private set; } = 0;
+        public double LastAvgDevPercent { get; private set; } = 0;
+        public bool HasComparedToStandard { get; private set; } = false;
 
         // Events for UI notification
         public event Action<List<TestStep>> OnStepsChanged;
@@ -69,6 +73,10 @@ namespace SoncaAudioInspector
             _isCancelled = false;
             InitializeSteps();
             OnLogMessage?.Invoke("System", "Starting automated test procedure...");
+
+            LastMaxDevPercent = 0;
+            LastAvgDevPercent = 0;
+            HasComparedToStandard = false;
 
             // ----------------------------------------------------
             // Step 1: Device Connection Check
@@ -263,17 +271,57 @@ namespace SoncaAudioInspector
                 }
             }
 
+            // Compare with standard curve if available
+            double maxDevPercent = 0;
+            double sumDevPercent = 0;
+            int comparedCount = 0;
+
+            if (StandardCurve != null && StandardCurve.Count > 0)
+            {
+                foreach (var kvp in normalizedResults)
+                {
+                    double freq = kvp.Key;
+                    if (freq >= 100 && freq <= 15000 && StandardCurve.ContainsKey(freq))
+                    {
+                        double currDb = kvp.Value;
+                        double stdDb = StandardCurve[freq];
+                        double diffDb = currDb - stdDb;
+                        // Linear voltage ratio deviation
+                        double ratio = Math.Pow(10, diffDb / 20.0);
+                        double devPercent = Math.Abs(ratio - 1.0) * 100.0;
+
+                        sumDevPercent += devPercent;
+                        if (devPercent > maxDevPercent)
+                        {
+                            maxDevPercent = devPercent;
+                        }
+                        comparedCount++;
+                    }
+                }
+            }
+
+            string compareMsg = "";
+            if (comparedCount > 0)
+            {
+                double avgDevPercent = sumDevPercent / comparedCount;
+                LastMaxDevPercent = maxDevPercent;
+                LastAvgDevPercent = avgDevPercent;
+                HasComparedToStandard = true;
+                compareMsg = $" | Dev to Std: Max {maxDevPercent:F1}%, Avg {avgDevPercent:F1}%";
+                OnLogMessage?.Invoke("Step 2", $"Compared to Standard: Max Deviation = {maxDevPercent:F1}%, Avg Deviation = {avgDevPercent:F1}%");
+            }
+
             if (freqResponsePass)
             {
                 _steps[1].Status = "Pass";
-                _steps[1].Details = $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
-                OnLogMessage?.Invoke("Step 2", $"Frequency response PASSED. Max deviation: {maxFreqDev:F2} dB");
+                _steps[1].Details = $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){compareMsg}";
+                OnLogMessage?.Invoke("Step 2", $"Frequency response PASSED. Max deviation: {maxFreqDev:F2} dB{compareMsg}");
             }
             else
             {
                 _steps[1].Status = "Fail";
-                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
-                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB");
+                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){compareMsg}";
+                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB{compareMsg}");
             }
 
             OnStepsChanged?.Invoke(_steps);
