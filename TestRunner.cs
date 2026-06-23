@@ -221,6 +221,48 @@ namespace SoncaAudioInspector
                 }
             }
 
+            // Export FEQ results to a CSV file if flagSaveData is true
+            if (AudioEngine.flagSaveData)
+            {
+                try
+                {
+                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    string fileName = $"feq_results_{timestamp}.csv";
+                    string filePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, fileName);
+                    
+                    using (var writer = new System.IO.StreamWriter(filePath))
+                    {
+                        writer.WriteLine("Sonca Audio Inspector - FEQ Test Results");
+                        writer.WriteLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                        writer.WriteLine($"Test Mode: {(AudioEngine.flagGenerateSeperateSine ? "Sine Sweep" : "Multitone")}");
+                        writer.WriteLine($"Reference Level (1000 Hz): {referenceDb:F2} dBFS");
+                        writer.WriteLine($"Tolerance Limit: ±{FreqResponseToleranceDb:F1} dB");
+                        writer.WriteLine($"Overall Result: {(freqResponsePass ? "PASS" : "FAIL")}");
+                        writer.WriteLine($"Max Deviation: {maxFreqDev:F2} dB");
+                        writer.WriteLine();
+                        writer.WriteLine("Frequency (Hz),Raw Level (dBFS),Normalized Level (dBr),Limit Status");
+                        
+                        foreach (var kvp in rawDbResults)
+                        {
+                            double freq = kvp.Key;
+                            double rawDb = kvp.Value;
+                            double normDb = normalizedResults[freq];
+                            string status = "N/A";
+                            if (freq >= 100 && freq <= 15000)
+                            {
+                                status = Math.Abs(normDb) <= FreqResponseToleranceDb ? "PASS" : "FAIL";
+                            }
+                            writer.WriteLine($"{freq},{rawDb:F2},{normDb:F2},{status}");
+                        }
+                    }
+                    OnLogMessage?.Invoke("Step 2", $"Saved FEQ results to: {fileName}");
+                }
+                catch (Exception ex)
+                {
+                    OnLogMessage?.Invoke("Step 2 Error", $"Failed to save FEQ CSV: {ex.Message}");
+                }
+            }
+
             if (freqResponsePass)
             {
                 _steps[1].Status = "Pass";

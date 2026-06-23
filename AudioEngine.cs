@@ -15,6 +15,7 @@ namespace SoncaAudioInspector
         // Global flags for testing
         public static bool flagSaveFile = true; // TODO TEST
         public static bool flagGenerateSeperateSine = false; // TODO TEST
+        public static bool flagSaveData = true; // // TODO TEST
 
         private MMDeviceEnumerator _enumerator;
         private WasapiOut _wasapiOut;
