@@ -224,6 +224,7 @@ namespace SoncaAudioInspector
             // Setup recording (using event sync with 150ms latency buffer)
             _wasapiCapture = new WasapiCapture(recordingDevice, true, 150);
             var deviceFormat = _wasapiCapture.WaveFormat;
+            RecordingSampleRate = deviceFormat.SampleRate;
             int devChannels = deviceFormat.Channels;
             
             _wasapiCapture.DataAvailable += (s, e) =>

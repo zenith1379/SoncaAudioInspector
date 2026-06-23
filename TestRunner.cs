@@ -138,7 +138,7 @@ namespace SoncaAudioInspector
                     }
 
                     // Analyze the last 200ms of the 800ms window where audio is guaranteed to be fully settled and running
-                    int sampleRate = 48000;
+                    int sampleRate = _audioEngine.RecordingSampleRate;
                     int analyzeCount = (int)(sampleRate * 0.2); // 200ms
                     int startOffset = Math.Max(0, recorded.Length - analyzeCount);
                     int countToAnalyze = Math.Min(analyzeCount, recorded.Length - startOffset);
@@ -186,10 +186,9 @@ namespace SoncaAudioInspector
                     }
                 }
 
-                double latencyMs = (double)startSignalIndex / 48000 * 1000;
+                int sampleRate = _audioEngine.RecordingSampleRate;
+                double latencyMs = (double)startSignalIndex / sampleRate * 1000;
                 OnLogMessage?.Invoke("Step 2", $"Estimated latency: {latencyMs:F1} ms");
-
-                int sampleRate = 48000;
 
                 foreach (var freq in sweepFrequencies)
                 {
