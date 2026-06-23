@@ -15,6 +15,14 @@ namespace SoncaAudioInspector
 
     public class TestRunner
     {
+        public static readonly double[] TestFrequencies = new double[]
+        {
+            20, 50, 100, 150, 200, 250,
+            500, 750, 1000, 1250, 1500, 
+            3000, 4000, 5000, 6000, 7000,
+            10000, 15000, 20000
+        };
+
         private readonly AudioEngine _audioEngine;
         
         // Target limits
@@ -96,20 +104,12 @@ namespace SoncaAudioInspector
             OnLogMessage?.Invoke("Step 2", "Starting frequency sweep from 20 Hz to 20 kHz...");
             OnTestSubstatusChanged?.Invoke("Freq", "Initializing...");
 
-            // Frequencies to test (logarithmic spacing)
-            double[] sweepFrequencies = new double[]
-            {
-                20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000
-                /*20, 50, 100, 150, 200, 250,
-                500, 750, 1000, 1250, 1500, 
-                3000, 4000, 5000, 6000, 7000,
-                10000, 15000, 20000*/
-            };
+            double[] sweepFrequencies = TestFrequencies;
 
             Dictionary<double, double> rawDbResults = new Dictionary<double, double>();
             bool freqResponsePass = true;
 
-            if (AudioEngine.flagGenerateSine)
+            if (AudioEngine.flagGenerateSeperateSine)
             {
                 double toneDuration = 0.5; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
                 foreach (var freq in sweepFrequencies)
@@ -150,23 +150,16 @@ namespace SoncaAudioInspector
             }
             else
             {
-                // Play file sweep
-                string wavPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "audiocheck.net_sweep_20Hz_20000Hz_0dBFS_10s.wav");
-                if (!System.IO.File.Exists(wavPath))
-                {
-                    _steps[1].Status = "Fail";
-                    _steps[1].Details = "Sweep WAV file not found.";
-                    OnLogMessage?.Invoke("Step 2 Error", "Error: audiocheck.net_sweep_20Hz_20000Hz_0dBFS_10s.wav not found in app directory.");
-                    OnTestCompleted?.Invoke(false);
-                    return;
-                }
+                OnLogMessage?.Invoke("Step 2", "Playing and recording Multitone signal (1.5 seconds)...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Running Multitone (1.5s)...");
 
-                OnLogMessage?.Invoke("Step 2", "Playing sweep WAV file (10 seconds)...");
-                OnTestSubstatusChanged?.Invoke("Freq", "Playing Sweep (10s)...");
-                float[] recorded = await _audioEngine.PlayFileAndRecordAsync(wavPath, playbackDevice, recordingDevice, 10.5);
+                float[] recorded = await _audioEngine.PlayAndRecordAsync(
+                    playbackDevice, recordingDevice, SignalType.Multitone, 1000, 1.5);
 
-                OnLogMessage?.Invoke("Step 2", "Analyzing sweep recording...");
-                OnTestSubstatusChanged?.Invoke("Freq", "Analyzing Sweep...");
+                if (_isCancelled) return;
+
+                OnLogMessage?.Invoke("Step 2", "Analyzing multitone response...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Analyzing Multitone...");
 
                 // Detect clipping
                 float maxSample = recorded.Length > 0 ? recorded.Select(Math.Abs).Max() : 0f;
@@ -175,35 +168,12 @@ namespace SoncaAudioInspector
                     OnLogMessage?.Invoke("Warning", "CRITICAL: Input clipping detected! Lower Playback Volume or Recording Gain.");
                 }
 
-                // Detect when signal starts (threshold check) to adjust for hardware/OS delay
-                int startSignalIndex = 0;
-                for (int i = 0; i < recorded.Length; i++)
-                {
-                    if (Math.Abs(recorded[i]) > 0.005f)
-                    {
-                        startSignalIndex = i;
-                        break;
-                    }
-                }
-
                 int sampleRate = _audioEngine.RecordingSampleRate;
-                double latencyMs = (double)startSignalIndex / sampleRate * 1000;
-                OnLogMessage?.Invoke("Step 2", $"Estimated latency: {latencyMs:F1} ms");
+                var multitoneResults = DspProcessor.CalculateMultitoneResponse(recorded, sampleRate, sweepFrequencies);
 
                 foreach (var freq in sweepFrequencies)
                 {
-                    // For log sweep f = 20 * 1000^(t/10) => t = 10 * log10(f/20) / 3
-                    double t = 10.0 * Math.Log10(freq / 20.0) / 3.0;
-                    int targetSampleIndex = startSignalIndex + (int)(t * sampleRate);
-
-                    // 150ms analysis window centered around target time
-                    int windowSize = (int)(sampleRate * 0.150);
-                    int startOffset = Math.Max(0, targetSampleIndex - windowSize / 2);
-                    int countToAnalyze = Math.Min(windowSize, recorded.Length - startOffset);
-
-                    double rms = DspProcessor.CalculateRms(recorded, startOffset, countToAnalyze);
-                    double db = 20 * Math.Log10(rms + 1e-9);
-                    rawDbResults[freq] = db;
+                    rawDbResults[freq] = multitoneResults[freq];
                 }
             }
 

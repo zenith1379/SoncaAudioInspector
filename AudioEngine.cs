@@ -14,7 +14,7 @@ namespace SoncaAudioInspector
     {
         // Global flags for testing
         public static bool flagSaveFile = true; // TODO TEST
-        public static bool flagGenerateSine = true; // TODO TEST
+        public static bool flagGenerateSeperateSine = false; // TODO TEST
 
         private MMDeviceEnumerator _enumerator;
         private WasapiOut _wasapiOut;
@@ -174,7 +174,7 @@ namespace SoncaAudioInspector
             lock (_lock)
             {
                 // Save output and input files if testing flag is enabled
-                if (flagSaveFile && (!flagGenerateSine || forceSaveFiles))
+                if (flagSaveFile && (!flagGenerateSeperateSine || forceSaveFiles))
                 {
                     try
                     {
@@ -360,7 +360,8 @@ namespace SoncaAudioInspector
     {
         Sine,
         PinkNoise,
-        Sweep
+        Sweep,
+        Multitone
     }
 
     public class SignalSampleProvider : ISampleProvider
@@ -377,6 +378,10 @@ namespace SoncaAudioInspector
         // Pink noise filter state variables
         private double b0, b1, b2, b3, b4, b5, b6;
 
+        // Multitone frequencies and phases
+        private readonly double[] _multitoneFrequencies;
+        private readonly double[] _multitonePhases;
+
         public SignalSampleProvider(int sampleRate, SignalType type, double frequency, double volume, Action<float[]> onSamplesGenerated = null)
         {
             _sampleRate = sampleRate;
@@ -385,6 +390,13 @@ namespace SoncaAudioInspector
             _volume = volume;
             _onSamplesGenerated = onSamplesGenerated;
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+
+            _multitoneFrequencies = TestRunner.TestFrequencies;
+            _multitonePhases = new double[_multitoneFrequencies.Length];
+            for (int i = 0; i < _multitonePhases.Length; i++)
+            {
+                _multitonePhases[i] = (Math.PI * i * i) / _multitoneFrequencies.Length;
+            }
         }
 
         public WaveFormat WaveFormat => _waveFormat;
@@ -419,6 +431,20 @@ namespace SoncaAudioInspector
                     double pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
                     b6 = white * 0.115926;
                     sampleValue = (float)(pink * 0.08 * _volume);
+                }
+                else if (_type == SignalType.Multitone)
+                {
+                    double sum = 0;
+                    for (int j = 0; j < _multitoneFrequencies.Length; j++)
+                    {
+                        sum += Math.Sin(_multitonePhases[j]);
+                        _multitonePhases[j] += 2.0 * Math.PI * _multitoneFrequencies[j] * samplePeriod;
+                        if (_multitonePhases[j] > 2.0 * Math.PI)
+                        {
+                            _multitonePhases[j] -= 2.0 * Math.PI;
+                        }
+                    }
+                    sampleValue = (float)((sum / _multitoneFrequencies.Length) * _volume * 0.85);
                 }
 
                 buffer[offset + i] = sampleValue;
