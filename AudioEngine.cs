@@ -165,8 +165,10 @@ namespace SoncaAudioInspector
             _wasapiCapture.StartRecording();
             _wasapiOut.Play();
 
-            // Wait for duration
-            await Task.Delay((int)(durationSeconds * 1000));
+            // Wait for duration + 350ms driver warmup/stabilization time.
+            // This ensures that the cold-start delay of the soundcard driver on the first run
+            // only affects the beginning of the recording, keeping the end of the buffer (used for analysis) stable.
+            await Task.Delay((int)(durationSeconds * 1000) + 350);
 
             // Stop
             Stop();
@@ -294,8 +296,10 @@ namespace SoncaAudioInspector
             _wasapiCapture.StartRecording();
             _wasapiOut.Play();
 
-            // Wait for duration
-            await Task.Delay((int)(durationSeconds * 1000));
+            // Wait for duration + 350ms driver warmup/stabilization time.
+            // This ensures that the cold-start delay of the soundcard driver on the first run
+            // only affects the beginning of the recording, keeping the end of the buffer stable.
+            await Task.Delay((int)(durationSeconds * 1000) + 350);
 
             // Stop
             Stop();

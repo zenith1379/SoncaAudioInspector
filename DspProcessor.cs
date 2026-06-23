@@ -191,7 +191,6 @@ namespace SoncaAudioInspector
             foreach (var targetFreq in targetFrequencies)
             {
                 int centerBin = (int)Math.Round(targetFreq / binWidth);
-                double maxMag = 0;
 
                 // 1. Find the actual peak bin within the search window (to account for clock drift)
                 double searchWidthHz = Math.Max(15.0, targetFreq * 0.015); // 1.5% frequency tolerance, min 15 Hz
