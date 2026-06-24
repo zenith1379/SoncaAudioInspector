@@ -531,6 +531,76 @@ namespace SoncaAudioInspector
             line2.LineStyle.Width = 1.5f;
             line2.LineStyle.Pattern = LinePattern.Dashed;
 
+            // 1. Draw Bass band (20Hz - 250Hz)
+            var spanBass = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(20), Math.Log10(250));
+            spanBass.LineStyle.Width = 0;
+            if (_testRunner != null && !_testRunner.BassPassed)
+            {
+                spanBass.FillStyle.Color = ScottPlot.Color.FromHex("#EF4444").WithAlpha(0.12f); // Red tint for fail
+            }
+            else
+            {
+                spanBass.FillStyle.Color = ScottPlot.Color.FromHex("#1F2937").WithAlpha(0.08f); // Dark tint for normal
+            }
+
+            // 2. Draw Mid band (250Hz - 4kHz)
+            var spanMid = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(250), Math.Log10(4000));
+            spanMid.LineStyle.Width = 0;
+            if (_testRunner != null && !_testRunner.MidPassed)
+            {
+                spanMid.FillStyle.Color = ScottPlot.Color.FromHex("#EF4444").WithAlpha(0.12f); // Red tint for fail
+            }
+            else
+            {
+                spanMid.FillStyle.Color = ScottPlot.Color.FromHex("#1F2937").WithAlpha(0.04f); // Slightly lighter tint
+            }
+
+            // 3. Draw Treble band (4kHz - 20kHz)
+            var spanTreble = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(4000), Math.Log10(20000));
+            spanTreble.LineStyle.Width = 0;
+            if (_testRunner != null && !_testRunner.TreblePassed)
+            {
+                spanTreble.FillStyle.Color = ScottPlot.Color.FromHex("#EF4444").WithAlpha(0.12f); // Red tint for fail
+            }
+            else
+            {
+                spanTreble.FillStyle.Color = ScottPlot.Color.FromHex("#1F2937").WithAlpha(0.08f); // Dark tint for normal
+            }
+
+            // Draw vertical dashed lines at boundaries
+            var lineBassMid = PlotFreqResponse.Plot.Add.VerticalLine(Math.Log10(250));
+            lineBassMid.Color = ScottPlot.Color.FromHex("#3F3F46");
+            lineBassMid.LineStyle.Width = 1f;
+            lineBassMid.LineStyle.Pattern = LinePattern.Dashed;
+
+            var lineMidTreble = PlotFreqResponse.Plot.Add.VerticalLine(Math.Log10(4000));
+            lineMidTreble.Color = ScottPlot.Color.FromHex("#3F3F46");
+            lineMidTreble.LineStyle.Width = 1f;
+            lineMidTreble.LineStyle.Pattern = LinePattern.Dashed;
+
+            // Draw text labels for bands at the top
+            double xBassText = (Math.Log10(20) + Math.Log10(250)) / 2.0;
+            double xMidText = (Math.Log10(250) + Math.Log10(4000)) / 2.0;
+            double xTrebleText = (Math.Log10(4000) + Math.Log10(20000)) / 2.0;
+
+            var txtBass = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.BassPassed ? "BASS (FAIL)" : "BASS", xBassText, 11);
+            txtBass.LabelFontColor = _testRunner != null && !_testRunner.BassPassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
+            txtBass.LabelFontSize = 10;
+            txtBass.LabelBold = true;
+            txtBass.LabelAlignment = Alignment.UpperCenter;
+
+            var txtMid = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.MidPassed ? "MID (FAIL)" : "MIDDLE", xMidText, 11);
+            txtMid.LabelFontColor = _testRunner != null && !_testRunner.MidPassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
+            txtMid.LabelFontSize = 10;
+            txtMid.LabelBold = true;
+            txtMid.LabelAlignment = Alignment.UpperCenter;
+
+            var txtTreble = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.TreblePassed ? "TREBLE (FAIL)" : "TREBLE", xTrebleText, 11);
+            txtTreble.LabelFontColor = _testRunner != null && !_testRunner.TreblePassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
+            txtTreble.LabelFontSize = 10;
+            txtTreble.LabelBold = true;
+            txtTreble.LabelAlignment = Alignment.UpperCenter;
+
             // Plot standard/reference curve if loaded
             if (_standardCurve != null && _standardCurve.Count > 0)
             {

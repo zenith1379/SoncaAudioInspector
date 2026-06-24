@@ -15,13 +15,46 @@ namespace SoncaAudioInspector
 
     public class TestRunner
     {
-        public static readonly double[] TestFrequencies = new double[]
+        // Configuration options for frequency bands count
+        public static int BassCount = 6;
+        public static int MidCount = 8;
+        public static int TrebleCount = 5;
+
+        // Band boundaries
+        public const double BassMin = 20;
+        public const double BassMax = 250;
+        public const double MidMin = 250;
+        public const double MidMax = 4000;
+        public const double TrebleMin = 4000;
+        public const double TrebleMax = 20000;
+
+        public static double[] TestFrequencies
         {
-            20, 50, 100, 150, 200, 250,
-            500, 750, 1000, 1250, 1500, 
-            3000, 4000, 5000, 6000, 7000,
-            10000, 15000, 20000
-        };
+            get
+            {
+                var freqs = new List<double>();
+                GenerateLogFrequencies(BassMin, BassMax, BassCount, freqs);
+                GenerateLogFrequencies(MidMin, MidMax, MidCount, freqs);
+                GenerateLogFrequencies(TrebleMin, TrebleMax, TrebleCount, freqs);
+                return freqs.Distinct().OrderBy(f => f).ToArray();
+            }
+        }
+
+        private static void GenerateLogFrequencies(double min, double max, int count, List<double> list)
+        {
+            if (count <= 0) return;
+            if (count == 1)
+            {
+                list.Add(Math.Round(min));
+                return;
+            }
+            double factor = Math.Log(max / min);
+            for (int i = 0; i < count; i++)
+            {
+                double val = min * Math.Exp(factor * i / (count - 1));
+                list.Add(Math.Round(val));
+            }
+        }
 
         private readonly AudioEngine _audioEngine;
         
@@ -32,6 +65,10 @@ namespace SoncaAudioInspector
         public double LastMaxDevPercent { get; private set; } = 0;
         public double LastAvgDevPercent { get; private set; } = 0;
         public bool HasComparedToStandard { get; private set; } = false;
+
+        public bool BassPassed { get; private set; } = true;
+        public bool MidPassed { get; private set; } = true;
+        public bool TreblePassed { get; private set; } = true;
 
         // Events for UI notification
         public event Action<List<TestStep>> OnStepsChanged;
@@ -77,6 +114,9 @@ namespace SoncaAudioInspector
             LastMaxDevPercent = 0;
             LastAvgDevPercent = 0;
             HasComparedToStandard = false;
+            BassPassed = true;
+            MidPassed = true;
+            TreblePassed = true;
 
             // ----------------------------------------------------
             // Step 1: Device Connection Check
@@ -225,8 +265,18 @@ namespace SoncaAudioInspector
                     if (isSilent || absoluteDev > FreqResponseToleranceDb)
                     {
                         freqResponsePass = false;
+                        if (kvp.Key < MidMin) BassPassed = false;
+                        else if (kvp.Key < TrebleMin) MidPassed = false;
+                        else TreblePassed = false;
                     }
                 }
+            }
+
+            if (isSilent)
+            {
+                BassPassed = false;
+                MidPassed = false;
+                TreblePassed = false;
             }
 
             // Export FEQ results to a CSV file if flagSaveData is true
@@ -320,8 +370,14 @@ namespace SoncaAudioInspector
             else
             {
                 _steps[1].Status = "Fail";
-                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){compareMsg}";
-                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB{compareMsg}");
+                string failedBands = "";
+                if (!BassPassed) failedBands += "Bass ";
+                if (!MidPassed) failedBands += "Middle ";
+                if (!TreblePassed) failedBands += "Treble ";
+                string failedBandsMsg = string.IsNullOrEmpty(failedBands) ? "" : $" | Failed: {failedBands.Trim()}";
+
+                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Dev: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){failedBandsMsg}{compareMsg}";
+                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max dev: {maxFreqDev:F2} dB{failedBandsMsg}{compareMsg}");
             }
 
             OnStepsChanged?.Invoke(_steps);
