@@ -637,7 +637,7 @@ namespace SoncaAudioInspector
 
             if (_testRunner != null && _testRunner.HasComparedToStandard)
             {
-                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 10.5);
+                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 8.5);
                 txtDev.LabelFontColor = ScottPlot.Color.FromHex("#EAB308"); // Gold/Yellow
                 txtDev.LabelFontSize = 13;
                 txtDev.LabelBold = true;

@@ -221,10 +221,10 @@ namespace SoncaAudioInspector
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
                 await Task.Delay(1200); // Wait so they can see success state before loading main window
 
-                // Launch login window
-                LoginWindow login = new LoginWindow();
-                App.Current.MainWindow = login;
-                login.Show();
+                // Launch main window directly
+                MainWindow main = new MainWindow();
+                App.Current.MainWindow = main;
+                main.Show();
                 this.Close();
             }
             else
