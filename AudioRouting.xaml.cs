@@ -987,7 +987,49 @@ namespace SoncaAudioInspector
             SetFinalVerdict(suitePassed);
         }
 
-        private string GetStandardDeviceFileName()
+        private string GetStandardsDirectory()
+        {
+            string dir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save standards");
+            if (!System.IO.Directory.Exists(dir))
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(dir);
+                }
+                catch { }
+            }
+
+            // Migrate old files from BaseDirectory to "save standards" folder
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                if (System.IO.Directory.Exists(baseDir))
+                {
+                    foreach (var file in System.IO.Directory.GetFiles(baseDir, "standard_*.csv"))
+                    {
+                        try
+                        {
+                            string fileName = System.IO.Path.GetFileName(file);
+                            string destFile = System.IO.Path.Combine(dir, fileName);
+                            if (!System.IO.File.Exists(destFile))
+                            {
+                                System.IO.File.Move(file, destFile);
+                            }
+                            else
+                            {
+                                System.IO.File.Delete(file);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return dir;
+        }
+
+        private string GetStandardDeviceKey()
         {
             if (ComboPlayback == null || RadioBtPlayback == null || ComboBluetooth == null || 
                 ComboRecording == null || SliderPlaybackVolume == null || SliderRecordingGain == null || 
@@ -1015,7 +1057,14 @@ namespace SoncaAudioInspector
                 key = key.Replace(c, '_');
             }
             key = key.Replace(' ', '_');
-            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"standard_{key}.csv");
+            return key;
+        }
+
+        private string GetStandardDeviceFileName()
+        {
+            string key = GetStandardDeviceKey();
+            if (string.IsNullOrEmpty(key)) return "";
+            return System.IO.Path.Combine(GetStandardsDirectory(), $"standard_{key}.csv");
         }
 
         private void CheckAndLoadStandardDevice()
@@ -1023,25 +1072,35 @@ namespace SoncaAudioInspector
             _standardCurve = null;
             try
             {
-                string filePath = GetStandardDeviceFileName();
-                if (string.IsNullOrEmpty(filePath)) return;
-
-                if (System.IO.File.Exists(filePath))
+                string key = GetStandardDeviceKey();
+                if (!string.IsNullOrEmpty(key))
                 {
-                    var curve = new Dictionary<double, double>();
-                    var lines = System.IO.File.ReadAllLines(filePath);
-                    foreach (var line in lines)
+                    string standardsDir = GetStandardsDirectory();
+                    string filePath = null;
+
+                    if (System.IO.Directory.Exists(standardsDir))
                     {
-                        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("Frequency")) continue;
-                        var parts = line.Split(',');
-                        if (parts.Length >= 2 && double.TryParse(parts[0], out double freq) && double.TryParse(parts[1], out double db))
-                        {
-                            curve[freq] = db;
-                        }
+                        var files = System.IO.Directory.GetFiles(standardsDir, "*.csv");
+                        filePath = files.FirstOrDefault(f => System.IO.Path.GetFileName(f).IndexOf(key, System.StringComparison.OrdinalIgnoreCase) >= 0);
                     }
-                    if (curve.Count > 0)
+
+                    if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
                     {
-                        _standardCurve = curve;
+                        var curve = new Dictionary<double, double>();
+                        var lines = System.IO.File.ReadAllLines(filePath);
+                        foreach (var line in lines)
+                        {
+                            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("Frequency")) continue;
+                            var parts = line.Split(',');
+                            if (parts.Length >= 2 && double.TryParse(parts[0], out double freq) && double.TryParse(parts[1], out double db))
+                            {
+                                curve[freq] = db;
+                            }
+                        }
+                        if (curve.Count > 0)
+                        {
+                            _standardCurve = curve;
+                        }
                     }
                 }
             }
