@@ -69,6 +69,26 @@ namespace SoncaAudioInspector
             return msgBox._result;
         }
 
+        public static bool ShowRetryCancel(Window owner, string message, string title, out bool cancelPressed)
+        {
+            var msgBox = new ModernMessageBox(message, title, MessageBoxType.Confirmation);
+            msgBox.TxtIcon.Text = "🔌";
+            msgBox.TxtIcon.Foreground = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Orange/Yellow
+            msgBox.BtnYes.Content = "Thử lại";
+            msgBox.BtnYes.Background = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // Green
+            msgBox.BtnYes.Foreground = Brushes.Black;
+            msgBox.BtnNo.Content = "Hủy";
+            msgBox.BtnNo.Visibility = Visibility.Visible;
+            
+            if (owner != null && owner.IsVisible)
+            {
+                msgBox.Owner = owner;
+            }
+            msgBox.ShowDialog();
+            cancelPressed = !msgBox._result;
+            return msgBox._result;
+        }
+
         private void BtnYes_Click(object sender, RoutedEventArgs e)
         {
             _result = true;

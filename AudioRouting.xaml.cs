@@ -375,13 +375,6 @@ namespace SoncaAudioInspector
                 }
             }
 
-            if (missing.Count > 0)
-            {
-                missingMessage = string.Join("\n", missing);
-                PanelAutoTestList.Visibility = Visibility.Collapsed;
-                return false;
-            }
-
             missingMessage = null;
 
             // Load matched recording into ComboRecording
@@ -435,6 +428,8 @@ namespace SoncaAudioInspector
             {
                 foreach (var tc in inOutConfig.Tests)
                 {
+                    if (!tc.IsEnabled) continue;
+
                     _autoTestCases.Add(new AutoTestCaseItem
                     {
                         Id = tc.id,
@@ -460,7 +455,7 @@ namespace SoncaAudioInspector
             ApplyDarkThemeToPlot(PlotThdFft.Plot);
 
             // Configure Freq Response Axes
-            PlotFreqResponse.Plot.Title("Normalized Frequency Response");
+            PlotFreqResponse.Plot.Title("Normalized Frequency Response with 1 kHz");
             PlotFreqResponse.Plot.Axes.Left.Label.Text = "Amplitude (dBr)";
             PlotFreqResponse.Plot.Axes.Bottom.Label.Text = "Frequency (Hz)";
 
@@ -896,43 +891,115 @@ namespace SoncaAudioInspector
                 test.Status = "RUNNING";
                 test.StatusBrush = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
 
-                // 1. Map and Select target Playback Out device
-                string playbackConfigKey = test.Config.PlaybackOut; // e.g. "SoundCard"
-                string playbackDeviceName = "";
-                _activeInOutConfig.Devices.Input?.TryGetValue(playbackConfigKey, out playbackDeviceName);
-
-                if (!string.IsNullOrEmpty(playbackDeviceName))
+                // Load volume, gain and thd limit from test config (fallback to default volume 40 and gain 100)
+                double pbVol = test.Config.PlaybackVolume ?? 40.0;
+                double recGain = test.Config.RecordingGain ?? 100.0;
+                SliderPlaybackVolume.Value = pbVol;
+                SliderRecordingGain.Value = recGain;
+                if (test.Config.ThdLimit.HasValue)
                 {
-                    // Find in ComboPlayback or ComboBluetooth
-                    var usbItem = ComboPlayback.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
-                    var btItem = ComboBluetooth.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                    TxtThdLimit.Text = test.Config.ThdLimit.Value.ToString("F3");
+                }
+                else
+                {
+                    TxtThdLimit.Text = "0.5";
+                }
 
-                    if (usbItem != null)
+                // Device checking & selection loop
+                bool devicesMatched = false;
+                while (!devicesMatched)
+                {
+                    if (!_isExecutingAutoSuite) break;
+
+                    string playbackConfigKey = test.Config.PlaybackOut; // e.g. "SoundCard"
+                    string playbackDeviceName = "";
+                    _activeInOutConfig.Devices.Input?.TryGetValue(playbackConfigKey, out playbackDeviceName);
+
+                    string recordingConfigKey = test.Config.RecordingIn; // e.g. "6.5 Jack"
+                    string recordingDeviceName = "";
+                    _activeInOutConfig.Devices.Output?.TryGetValue(recordingConfigKey, out recordingDeviceName);
+
+                    var currentPlaybacks = _audioEngine.GetPlaybackDevices();
+                    var currentRecordings = _audioEngine.GetRecordingDevices();
+
+                    bool hasPlaybackMatch = string.IsNullOrEmpty(playbackDeviceName) || 
+                        currentPlaybacks.Any(d => d.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    bool hasRecordingMatch = string.IsNullOrEmpty(recordingDeviceName) || 
+                        currentRecordings.Any(d => d.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    if (hasPlaybackMatch && hasRecordingMatch)
                     {
-                        ComboPlayback.SelectedItem = usbItem;
-                        RadioUsbPlayback.IsChecked = true;
-                        RadioBtPlayback.IsChecked = false;
+                        devicesMatched = true;
+
+                        // Refresh active devices in combos to match the latest scanned list
+                        AutoDetectDevices();
+
+                        if (!string.IsNullOrEmpty(playbackDeviceName))
+                        {
+                            var usbItem = ComboPlayback.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                            var btItem = ComboBluetooth.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            if (usbItem != null)
+                            {
+                                ComboPlayback.SelectedItem = usbItem;
+                                RadioUsbPlayback.IsChecked = true;
+                                RadioBtPlayback.IsChecked = false;
+                            }
+                            else if (btItem != null)
+                            {
+                                ComboBluetooth.SelectedItem = btItem;
+                                RadioUsbPlayback.IsChecked = false;
+                                RadioBtPlayback.IsChecked = true;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(recordingDeviceName))
+                        {
+                            var recItem = ComboRecording.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (recItem != null)
+                            {
+                                ComboRecording.SelectedItem = recItem;
+                            }
+                        }
                     }
-                    else if (btItem != null)
+                    else
                     {
-                        ComboBluetooth.SelectedItem = btItem;
-                        RadioUsbPlayback.IsChecked = false;
-                        RadioBtPlayback.IsChecked = true;
+                        bool cancelPressed = false;
+                        string title = "Chưa tìm thấy ngõ kết nối";
+                        string msg = $"Chưa phát hiện ngõ in [{playbackConfigKey}] - out [{recordingConfigKey}]\n\nVui lòng chỉnh thiết bị ra ngõ đúng.";
+                        
+                        bool retry = ModernMessageBox.ShowRetryCancel(Window.GetWindow(this), msg, title, out cancelPressed);
+                        if (cancelPressed)
+                        {
+                            _isExecutingAutoSuite = false;
+                            break;
+                        }
+                        else if (retry)
+                        {
+                            var newPlaybacks = _audioEngine.GetPlaybackDevices();
+                            var newRecordings = _audioEngine.GetRecordingDevices();
+
+                            bool foundPlayback = string.IsNullOrEmpty(playbackDeviceName) || 
+                                newPlaybacks.Any(d => d.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            bool foundRecording = string.IsNullOrEmpty(recordingDeviceName) || 
+                                newRecordings.Any(d => d.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            if (!foundPlayback || !foundRecording)
+                            {
+                                ModernMessageBox.Show(Window.GetWindow(this), "Vẫn chưa tìm thấy!", "Thông báo", ModernMessageBox.MessageBoxType.Warning);
+                            }
+                        }
                     }
                 }
 
-                // 2. Map and Select target Recording In device
-                string recordingConfigKey = test.Config.RecordingIn; // e.g. "6.5 Jack"
-                string recordingDeviceName = "";
-                _activeInOutConfig.Devices.Output?.TryGetValue(recordingConfigKey, out recordingDeviceName);
-
-                if (!string.IsNullOrEmpty(recordingDeviceName))
+                if (!_isExecutingAutoSuite)
                 {
-                    var recItem = ComboRecording.Items.Cast<DeviceItem>().FirstOrDefault(i => i.Device.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
-                    if (recItem != null)
-                    {
-                        ComboRecording.SelectedItem = recItem;
-                    }
+                    suitePassed = false;
+                    test.Status = "FAIL";
+                    test.StatusBrush = new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
+                    break;
                 }
 
                 // Reset UI & charts for this individual run

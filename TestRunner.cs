@@ -36,6 +36,10 @@ namespace SoncaAudioInspector
                 GenerateLogFrequencies(BassMin, BassMax, BassCount, freqs);
                 GenerateLogFrequencies(MidMin, MidMax, MidCount, freqs);
                 GenerateLogFrequencies(TrebleMin, TrebleMax, TrebleCount, freqs);
+                if (!freqs.Contains(1000.0))
+                {
+                    freqs.Add(1000.0);
+                }
                 return freqs.Distinct().OrderBy(f => f).ToArray();
             }
         }
@@ -257,12 +261,21 @@ namespace SoncaAudioInspector
                 // Evaluate limits (only between 100 Hz and 15000 Hz, where typical device response is critical)
                 if (kvp.Key >= 100 && kvp.Key <= 15000)
                 {
-                    double absoluteDev = Math.Abs(normDb);
+                    double targetDb = 0;
+                    bool hasStandard = StandardCurve != null && StandardCurve.Count > 0;
+                    if (hasStandard && StandardCurve.ContainsKey(kvp.Key))
+                    {
+                        targetDb = StandardCurve[kvp.Key];
+                    }
+
+                    double absoluteDev = Math.Abs(normDb - targetDb);
                     if (absoluteDev > maxFreqDev)
                     {
                         maxFreqDev = absoluteDev;
                     }
-                    if (isSilent || absoluteDev > FreqResponseToleranceDb)
+
+                    bool isLimitExceeded = hasStandard && (absoluteDev > FreqResponseToleranceDb);
+                    if (isSilent || isLimitExceeded)
                     {
                         freqResponsePass = false;
                         if (kvp.Key < MidMin) BassPassed = false;
