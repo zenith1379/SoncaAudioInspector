@@ -217,8 +217,8 @@ namespace SoncaAudioInspector
                 {
                     PlaybackVolume = SliderPlaybackVolume.Value,
                     RecordingGain = SliderRecordingGain.Value,
-                    FreqTolerance = double.TryParse(TxtFreqTolerance.Text, out double ft) ? ft : 3.0,
-                    ThdLimit = double.TryParse(TxtThdLimit.Text, out double tl) ? tl : 0.5,
+                    FreqTolerance = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0),
+                    ThdLimit = ParseDoubleSafe(TxtThdLimit.Text, 0.5),
                     UseUsbPlayback = RadioUsbPlayback.IsChecked == true
                 };
                 string json = JsonSerializer.Serialize(config);
@@ -475,7 +475,7 @@ namespace SoncaAudioInspector
             // Set Log-Scale Ticks manually for the X-axis
             ConfigureLogarithmicXAxis(PlotFreqResponse.Plot);
 
-            PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -12, 12); // log10(20) to log10(20000)
+            PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -15, 15); // log10(20) to log10(20000)
             PlotFreqResponse.Refresh();
 
             // Configure THD Axes
@@ -578,19 +578,19 @@ namespace SoncaAudioInspector
             double xMidText = (Math.Log10(250) + Math.Log10(4000)) / 2.0;
             double xTrebleText = (Math.Log10(4000) + Math.Log10(20000)) / 2.0;
 
-            var txtBass = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.BassPassed ? "BASS (FAIL)" : "BASS", xBassText, 11);
+            var txtBass = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.BassPassed ? "BASS (FAIL)" : "BASS", xBassText, 13.5);
             txtBass.LabelFontColor = _testRunner != null && !_testRunner.BassPassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
             txtBass.LabelFontSize = 10;
             txtBass.LabelBold = true;
             txtBass.LabelAlignment = Alignment.UpperCenter;
 
-            var txtMid = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.MidPassed ? "MID (FAIL)" : "MIDDLE", xMidText, 11);
+            var txtMid = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.MidPassed ? "MID (FAIL)" : "MIDDLE", xMidText, 13.5);
             txtMid.LabelFontColor = _testRunner != null && !_testRunner.MidPassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
             txtMid.LabelFontSize = 10;
             txtMid.LabelBold = true;
             txtMid.LabelAlignment = Alignment.UpperCenter;
 
-            var txtTreble = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.TreblePassed ? "TREBLE (FAIL)" : "TREBLE", xTrebleText, 11);
+            var txtTreble = PlotFreqResponse.Plot.Add.Text(_testRunner != null && !_testRunner.TreblePassed ? "TREBLE (FAIL)" : "TREBLE", xTrebleText, 13.5);
             txtTreble.LabelFontColor = _testRunner != null && !_testRunner.TreblePassed ? ScottPlot.Colors.Red : ScottPlot.Color.FromHex("#A1A1AA");
             txtTreble.LabelFontSize = 10;
             txtTreble.LabelBold = true;
@@ -632,7 +632,7 @@ namespace SoncaAudioInspector
 
             if (_testRunner != null && _testRunner.HasComparedToStandard)
             {
-                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 8.5);
+                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 11.5);
                 txtDev.LabelFontColor = ScottPlot.Color.FromHex("#EAB308"); // Gold/Yellow
                 txtDev.LabelFontSize = 13;
                 txtDev.LabelBold = true;
@@ -641,7 +641,7 @@ namespace SoncaAudioInspector
 
             PlotFreqResponse.Plot.Legend.IsVisible = false;
             ConfigureLogarithmicXAxis(PlotFreqResponse.Plot);
-            PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -12, 12);
+            PlotFreqResponse.Plot.Axes.SetLimits(1.3, 4.3, -15, 15);
             PlotFreqResponse.Refresh();
         }
 
@@ -745,10 +745,8 @@ namespace SoncaAudioInspector
             BtnSaveStandard.IsEnabled = false;
 
             // Update limits in runner
-            if (double.TryParse(TxtFreqTolerance.Text, out double fTol))
-                _testRunner.FreqResponseToleranceDb = fTol;
-            if (double.TryParse(TxtThdLimit.Text, out double thdLim))
-                _testRunner.ThdLimitPercent = thdLim;
+            _testRunner.FreqResponseToleranceDb = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
+            _testRunner.ThdLimitPercent = ParseDoubleSafe(TxtThdLimit.Text, 0.5);
 
             CheckAndLoadStandardDevice();
             _testRunner.StandardCurve = _standardCurve;
@@ -829,6 +827,19 @@ namespace SoncaAudioInspector
             AutoDetectDevices();
         }
 
+        private double ParseDoubleSafe(string text, double defaultValue = 0.0)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return defaultValue;
+            if (double.TryParse(text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double val))
+                return val;
+            if (double.TryParse(text, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out val))
+                return val;
+            string replaced = text.Contains(".") ? text.Replace(".", ",") : text.Replace(",", ".");
+            if (double.TryParse(replaced, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out val))
+                return val;
+            return defaultValue;
+        }
+
         private void ComboDevice_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (TxtFreqTolerance == null || TxtThdLimit == null) return;
@@ -898,7 +909,7 @@ namespace SoncaAudioInspector
                 SliderRecordingGain.Value = recGain;
                 if (test.Config.ThdLimit.HasValue)
                 {
-                    TxtThdLimit.Text = test.Config.ThdLimit.Value.ToString("F3");
+                    TxtThdLimit.Text = test.Config.ThdLimit.Value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
                 }
                 else
                 {
@@ -969,27 +980,24 @@ namespace SoncaAudioInspector
                         string title = "Chưa tìm thấy ngõ kết nối";
                         string msg = $"Chưa phát hiện ngõ in [{playbackConfigKey}] - out [{recordingConfigKey}]\n\nVui lòng chỉnh thiết bị ra ngõ đúng.";
                         
-                        bool retry = ModernMessageBox.ShowRetryCancel(Window.GetWindow(this), msg, title, out cancelPressed);
+                        System.Func<bool> checkDevices = () => {
+                            var checkPlaybacks = _audioEngine.GetPlaybackDevices();
+                            var checkRecordings = _audioEngine.GetRecordingDevices();
+
+                            bool foundP = string.IsNullOrEmpty(playbackDeviceName) || 
+                                checkPlaybacks.Any(d => d.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            bool foundR = string.IsNullOrEmpty(recordingDeviceName) || 
+                                checkRecordings.Any(d => d.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
+
+                            return foundP && foundR;
+                        };
+
+                        bool retry = ModernMessageBox.ShowRetryCancelWithAutoPoll(Window.GetWindow(this), msg, title, checkDevices, out cancelPressed);
                         if (cancelPressed)
                         {
                             _isExecutingAutoSuite = false;
                             break;
-                        }
-                        else if (retry)
-                        {
-                            var newPlaybacks = _audioEngine.GetPlaybackDevices();
-                            var newRecordings = _audioEngine.GetRecordingDevices();
-
-                            bool foundPlayback = string.IsNullOrEmpty(playbackDeviceName) || 
-                                newPlaybacks.Any(d => d.FriendlyName.IndexOf(playbackDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
-
-                            bool foundRecording = string.IsNullOrEmpty(recordingDeviceName) || 
-                                newRecordings.Any(d => d.FriendlyName.IndexOf(recordingDeviceName, StringComparison.OrdinalIgnoreCase) >= 0);
-
-                            if (!foundPlayback || !foundRecording)
-                            {
-                                ModernMessageBox.Show(Window.GetWindow(this), "Vẫn chưa tìm thấy!", "Thông báo", ModernMessageBox.MessageBoxType.Warning);
-                            }
                         }
                     }
                 }
@@ -1017,10 +1025,8 @@ namespace SoncaAudioInspector
                 LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21));
 
                 // Update limits in runner
-                if (double.TryParse(TxtFreqTolerance.Text, out double fTol))
-                    _testRunner.FreqResponseToleranceDb = fTol;
-                if (double.TryParse(TxtThdLimit.Text, out double thdLim))
-                    _testRunner.ThdLimitPercent = thdLim;
+                _testRunner.FreqResponseToleranceDb = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
+                _testRunner.ThdLimitPercent = ParseDoubleSafe(TxtThdLimit.Text, 0.5);
 
                 CheckAndLoadStandardDevice();
                 _testRunner.StandardCurve = _standardCurve;
@@ -1113,10 +1119,8 @@ namespace SoncaAudioInspector
             string inDevice = ComboRecording.SelectedItem is DeviceItem rDevice ? rDevice.DisplayName : "UnknownIn";
             double playVol = SliderPlaybackVolume.Value;
             double recGain = SliderRecordingGain.Value;
-            double tol = 0;
-            double.TryParse(TxtFreqTolerance.Text, out tol);
-            double thdLim = 0;
-            double.TryParse(TxtThdLimit.Text, out thdLim);
+            double tol = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
+            double thdLim = ParseDoubleSafe(TxtThdLimit.Text, 0.5);
 
             string key = $"{outDevice}_IN_{inDevice}_V_{playVol:F0}_G_{recGain:F0}_T_{tol:F1}_THD_{thdLim:F2}";
             foreach (char c in System.IO.Path.GetInvalidFileNameChars())
