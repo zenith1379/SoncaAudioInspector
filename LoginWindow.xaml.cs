@@ -16,6 +16,7 @@ namespace SoncaAudioInspector
         private void LoginWindow_Loaded(object sender, RoutedEventArgs e)
         {
             LblStatus.Text = "";
+            LoadRememberedLogin();
             SetUiEnabled(true);
         }
 
@@ -63,6 +64,15 @@ namespace SoncaAudioInspector
 
             if (success)
             {
+                if (ChkRememberLogin.IsChecked == true)
+                {
+                    ServerEngine.SaveRememberedLogin(account, password);
+                }
+                else
+                {
+                    ServerEngine.ClearRememberedLogin();
+                }
+
                 LblStatus.Text = $"Đăng nhập thành công! {ServerEngine.UserName} ({ServerEngine.UserRole})";
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // emerald-500
 
@@ -86,8 +96,29 @@ namespace SoncaAudioInspector
         {
             TxtUsername.IsEnabled = enabled;
             TxtPassword.IsEnabled = enabled;
+            ChkRememberLogin.IsEnabled = enabled;
             BtnLogin.IsEnabled = enabled;
             BtnExit.IsEnabled = enabled;
+        }
+
+        private void LoadRememberedLogin()
+        {
+            try
+            {
+                var remembered = ServerEngine.GetRememberedLogin();
+                if (remembered is null)
+                {
+                    return;
+                }
+
+                TxtUsername.Text = remembered.Account;
+                TxtPassword.Password = remembered.Password;
+                ChkRememberLogin.IsChecked = true;
+            }
+            catch
+            {
+                // Ignore unreadable cached credential and let user login manually.
+            }
         }
 
         private void BtnExit_Click(object sender, RoutedEventArgs e)

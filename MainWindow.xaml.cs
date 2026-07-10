@@ -81,6 +81,7 @@ namespace SoncaAudioInspector
         private AudioRouting _audioRoutingView;
         private VisualAI _visualAIView;
         private CheckingConfig _checkingConfig;
+        private List<ProductInfo> _serverProducts = new List<ProductInfo>();
 
         public MainWindow()
         {
@@ -110,6 +111,7 @@ namespace SoncaAudioInspector
 
             // Load configurations for models selection
             LoadCheckingConfig();
+            _ = LoadServerModelsAsync();
         }
 
         private void LoadCheckingConfig()
@@ -138,6 +140,45 @@ namespace SoncaAudioInspector
             }
         }
 
+        private async Task LoadServerModelsAsync()
+        {
+            try
+            {
+                var products = await ServerEngine.GetProductsAsync(1, 100);
+                _serverProducts = products.ToList();
+
+                var serverModels = _serverProducts
+                    .Select(p => p.Model ?? p.ProductCode ?? p.Name)
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(v => v)
+                    .ToList();
+
+                if (serverModels.Count == 0)
+                {
+                    return;
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    foreach (string model in serverModels)
+                    {
+                        bool exists = ComboModels.Items.Cast<object>().Any(item =>
+                            string.Equals(item?.ToString(), model, StringComparison.OrdinalIgnoreCase));
+
+                        if (!exists)
+                        {
+                            ComboModels.Items.Add(model);
+                        }
+                    }
+                });
+            }
+            catch
+            {
+                // Keep local checking_config.json models when server is offline or unauthorized.
+            }
+        }
+
         private void ComboModels_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
             if (ComboModels.SelectedItem == null || _checkingConfig == null) return;
@@ -158,15 +199,13 @@ namespace SoncaAudioInspector
 
         private bool _isLoggingOut = false;
 
-        private void BtnLogout_Click(object sender, RoutedEventArgs e)
+        private async void BtnLogout_Click(object sender, RoutedEventArgs e)
         {
             // Set flag to true to skip OnClosing prompt
             _isLoggingOut = true;
 
             // Reset cached auth values in ServerEngine
-            ServerEngine.StaffID = null;
-            ServerEngine.ProductID = null;
-            ServerEngine.TokenApp = null;
+            await ServerEngine.LogoutAsync();
 
             // Open LoginWindow and close current MainWindow
             LoginWindow login = new LoginWindow();
@@ -193,24 +232,37 @@ namespace SoncaAudioInspector
                 return;
             }
 
-            bool passed = await RequestProductStatusAsync(serial);
+            ProductInfo? product = await RequestProductStatusAsync(serial);
+            bool passed = product is not null;
             if (passed)
             {
-                ModernMessageBox.Show(this, $"Thiết bị (Serial: {serial}) đã được kiểm tra trạng thái thành công!", "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Info);
+                _visualAIView.SetCurrentProduct(product);
+                string details = $"Thiết bị (Serial: {serial}) đã được kiểm tra trạng thái thành công!";
+                if (!string.IsNullOrWhiteSpace(product?.Model))
+                {
+                    details += $"\nModel: {product.Model}";
+                }
+                if (!string.IsNullOrWhiteSpace(product?.ProductCode))
+                {
+                    details += $"\nMã sản phẩm: {product.ProductCode}";
+                }
+                if (!string.IsNullOrWhiteSpace(product?.Status))
+                {
+                    details += $"\nTrạng thái: {product.Status}";
+                }
+
+                ModernMessageBox.Show(this, details, "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Info);
             }
             else
             {
-                ModernMessageBox.Show(this, $"Thiết bị (Serial: {serial}) có trạng thái không khả dụng hoặc lỗi kết nối!", "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Error);
+                _visualAIView.SetCurrentProduct(null);
+                ModernMessageBox.Show(this, ServerEngine.LastError ?? $"Thiết bị (Serial: {serial}) có trạng thái không khả dụng hoặc lỗi kết nối!", "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Error);
             }
         }
 
-        private async Task<bool> RequestProductStatusAsync(string serialNumber)
+        private async Task<ProductInfo?> RequestProductStatusAsync(string serialNumber)
         {
-            // Placeholder endpoint method for future server processing
-            await Task.Delay(800); // Simulate network lag
-            
-            // Returns true for mock testing validation
-            return !string.IsNullOrEmpty(serialNumber);
+            return await ServerEngine.GetProductBySerialAsync(serialNumber);
         }
 
         private void SwitchToTab(string tabName)
