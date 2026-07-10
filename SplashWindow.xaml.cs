@@ -217,14 +217,25 @@ namespace SoncaAudioInspector
             // ---------------------------------------------------------
             if (internetPass && sys002Pass && hardwarePass)
             {
-                LblStatus.Text = "Tất cả các kiểm tra đều đạt! Đang tải giao diện chính...";
+                LblStatus.Text = "Tất cả các kiểm tra đều đạt! Đang xác thực ứng dụng...";
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
-                await Task.Delay(1200); // Wait so they can see success state before loading main window
 
-                // Launch main window directly
-                MainWindow main = new MainWindow();
-                App.Current.MainWindow = main;
-                main.Show();
+                bool appVerified = await ServerEngine.VerifyAppAsync();
+                if (!appVerified)
+                {
+                    LblStatus.Text = ServerEngine.LastError ?? "Không thể xác thực ứng dụng.";
+                    LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                    PanelFailureButtons.Visibility = Visibility.Visible;
+                    return;
+                }
+
+                LblStatus.Text = "Ứng dụng đã được xác thực! Đang tải giao diện đăng nhập...";
+                await Task.Delay(1200); // Wait so they can see success state before loading login window
+
+                // Launch login window
+                LoginWindow login = new LoginWindow();
+                App.Current.MainWindow = login;
+                login.Show();
                 this.Close();
             }
             else

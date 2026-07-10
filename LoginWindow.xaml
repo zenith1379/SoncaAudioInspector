@@ -96,7 +96,7 @@
             <!-- Form -->
             <StackPanel Grid.Row="1" VerticalAlignment="Center">
                 <!-- Username -->
-                <TextBlock Text="Tài khoản" 
+                <TextBlock Text="Email hoặc tài khoản"
                            Foreground="#A1A1AA" 
                            FontSize="13" 
                            Margin="0,0,0,6" 
@@ -126,6 +126,12 @@
                             FontSize="11" 
                             Margin="0,4,0,12" 
                             Visibility="Collapsed"/>
+
+                <CheckBox x:Name="ChkRememberLogin"
+                          Content="Ghi nhớ đăng nhập trên máy này"
+                          Foreground="#A1A1AA"
+                          FontSize="12"
+                          Margin="0,0,0,4"/>
             </StackPanel>
 
             <!-- Status Indicator -->

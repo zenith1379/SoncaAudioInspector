@@ -21,3 +21,7 @@ x86/
 # Packages
 .nuget/
 packages/
+
+# Local bootstrap credentials
+verify.txt
+secret.json

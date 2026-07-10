@@ -31,7 +31,7 @@
                     </StackPanel>
 
                     <!-- Staff User Info & Logout Button (Aligned Right) -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,15,0" Visibility="Collapsed">
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,15,0">
                         <TextBlock Name="TxtStaffWelcome" Text="Xin chào, Admin" FontSize="12" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <Button Name="BtnLogout" Content="Đăng xuất" Click="BtnLogout_Click" Background="#EF4444" Foreground="White" BorderThickness="0" FontSize="11" FontWeight="SemiBold" Padding="10,4" Cursor="Hand">
                             <Button.Resources>

@@ -10,29 +10,14 @@ namespace SoncaAudioInspector
         public LoginWindow()
         {
             InitializeComponent();
-            this.Loaded += LoginWindow_Loaded;
+            Loaded += LoginWindow_Loaded;
         }
 
-        private async void LoginWindow_Loaded(object sender, RoutedEventArgs e)
+        private void LoginWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            SetUiEnabled(false);
-            LblStatus.Text = "Đang lấy Token kết nối từ server...";
-            LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(161, 161, 170)); // zinc-400
-
-            bool hasToken = await ServerEngine.RequestTokenAsync();
-
-            if (hasToken)
-            {
-                LblStatus.Text = ""; // Clear token request status
-                SetUiEnabled(true);
-            }
-            else
-            {
-                LblStatus.Text = "Lỗi: Không thể lấy mã kết nối (Token) từ server. Vui lòng kiểm tra lại kết nối mạng!";
-                LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // red-500
-                // Keep UI inputs disabled except BtnExit so user can close the app
-                BtnExit.IsEnabled = true;
-            }
+            LblStatus.Text = "";
+            LoadRememberedLogin();
+            SetUiEnabled(true);
         }
 
         private async void BtnLogin_Click(object sender, RoutedEventArgs e)
@@ -71,15 +56,24 @@ namespace SoncaAudioInspector
             LblStatus.Text = "Đang xác thực thông tin đăng nhập...";
             LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(161, 161, 170)); // zinc-400
 
-            string username = TxtUsername.Text.Trim();
+            string account = TxtUsername.Text.Trim();
             string password = TxtPassword.Password;
 
             // Send information to the ServerEngine
-            bool success = await ServerEngine.AuthenticateAsync(username, password);
+            bool success = await ServerEngine.AuthenticateAsync(account, password);
 
             if (success)
             {
-                LblStatus.Text = $"Đăng nhập thành công! Chào mừng (ID: {ServerEngine.StaffID})";
+                if (ChkRememberLogin.IsChecked == true)
+                {
+                    ServerEngine.SaveRememberedLogin(account, password);
+                }
+                else
+                {
+                    ServerEngine.ClearRememberedLogin();
+                }
+
+                LblStatus.Text = $"Đăng nhập thành công! {ServerEngine.UserName} ({ServerEngine.UserRole})";
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // emerald-500
 
                 await Task.Delay(1000); // Visual delay for success confirmation
@@ -92,7 +86,7 @@ namespace SoncaAudioInspector
             }
             else
             {
-                LblStatus.Text = "Đăng nhập thất bại. Tài khoản hoặc mật khẩu không chính xác hoặc không thể kết nối server.";
+                LblStatus.Text = ServerEngine.LastError ?? "Đăng nhập thất bại.";
                 LblStatus.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // red-500
                 SetUiEnabled(true);
             }
@@ -102,8 +96,29 @@ namespace SoncaAudioInspector
         {
             TxtUsername.IsEnabled = enabled;
             TxtPassword.IsEnabled = enabled;
+            ChkRememberLogin.IsEnabled = enabled;
             BtnLogin.IsEnabled = enabled;
             BtnExit.IsEnabled = enabled;
+        }
+
+        private void LoadRememberedLogin()
+        {
+            try
+            {
+                var remembered = ServerEngine.GetRememberedLogin();
+                if (remembered is null)
+                {
+                    return;
+                }
+
+                TxtUsername.Text = remembered.Account;
+                TxtPassword.Password = remembered.Password;
+                ChkRememberLogin.IsChecked = true;
+            }
+            catch
+            {
+                // Ignore unreadable cached credential and let user login manually.
+            }
         }
 
         private void BtnExit_Click(object sender, RoutedEventArgs e)
