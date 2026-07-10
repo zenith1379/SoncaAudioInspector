@@ -125,7 +125,7 @@ namespace SoncaAudioInspector
 
             // Load configurations for models selection
             LoadCheckingConfig();
-            _ = LoadServerModelsAsync();
+            //_ = LoadServerModelsAsync();
         }
 
         private void LoadCheckingConfig()
