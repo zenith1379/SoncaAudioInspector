@@ -232,10 +232,10 @@ namespace SoncaAudioInspector
                 LblStatus.Text = "Ứng dụng đã được xác thực! Đang tải giao diện đăng nhập...";
                 await Task.Delay(1200); // Wait so they can see success state before loading login window
 
-                // Launch main window directly
-                MainWindow main = new MainWindow();
-                App.Current.MainWindow = main;
-                main.Show();
+                // Launch login window
+                LoginWindow login = new LoginWindow();
+                App.Current.MainWindow = login;
+                login.Show();
                 this.Close();
             }
             else
