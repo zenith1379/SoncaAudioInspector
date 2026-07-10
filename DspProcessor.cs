@@ -154,5 +154,83 @@ namespace SoncaAudioInspector
             }
             return sumSq;
         }
+
+        public static System.Collections.Generic.Dictionary<double, double> CalculateMultitoneResponse(
+            float[] samples, int sampleRate, double[] targetFrequencies)
+        {
+            var results = new System.Collections.Generic.Dictionary<double, double>();
+
+            int fftSize = 1;
+            while (fftSize < samples.Length)
+            {
+                fftSize *= 2;
+            }
+            fftSize = Math.Min(fftSize, 32768);
+            if (fftSize > samples.Length)
+            {
+                fftSize /= 2;
+            }
+
+            if (fftSize < 512)
+            {
+                foreach (var f in targetFrequencies) results[f] = -100.0;
+                return results;
+            }
+
+            float[] windowedInput = new float[fftSize];
+            Array.Copy(samples, samples.Length - fftSize, windowedInput, 0, fftSize);
+
+            Complex[] fftBuffer = new Complex[fftSize];
+            ApplyHannWindow(windowedInput, fftBuffer);
+            PerformFft(fftBuffer);
+
+            int halfSize = fftSize / 2;
+            double binWidth = (double)sampleRate / fftSize;
+            double scalingFactor = 2.0 / fftSize;
+
+            foreach (var targetFreq in targetFrequencies)
+            {
+                int centerBin = (int)Math.Round(targetFreq / binWidth);
+
+                // 1. Find the actual peak bin within the search window (to account for clock drift)
+                double searchWidthHz = Math.Max(15.0, targetFreq * 0.015); // 1.5% frequency tolerance, min 15 Hz
+                int binSpan = (int)Math.Ceiling(searchWidthHz / binWidth);
+
+                int startBin = Math.Max(0, centerBin - binSpan);
+                int endBin = Math.Min(halfSize - 1, centerBin + binSpan);
+
+                int peakBin = centerBin;
+                double maxBinMag = -1.0;
+
+                for (int b = startBin; b <= endBin; b++)
+                {
+                    double mag = fftBuffer[b].Magnitude;
+                    if (mag > maxBinMag)
+                    {
+                        maxBinMag = mag;
+                        peakBin = b;
+                    }
+                }
+
+                // 2. Sum the energy of 5 bins centered at the peakBin to eliminate scallop loss (ripples)
+                double sumSq = 0;
+                int energyStart = Math.Max(0, peakBin - 2);
+                int energyEnd = Math.Min(halfSize - 1, peakBin + 2);
+
+                for (int b = energyStart; b <= energyEnd; b++)
+                {
+                    double scaledMag = fftBuffer[b].Magnitude * scalingFactor;
+                    sumSq += scaledMag * scaledMag;
+                }
+
+                // 3. Apply the exact energy correction factor for the Hann window (sqrt(4/3)) to get the true amplitude
+                double estimatedAmp = Math.Sqrt(sumSq * 1.3333333333333333);
+
+                double dbFS = 20 * Math.Log10(estimatedAmp + 1e-9);
+                results[targetFreq] = dbFS;
+            }
+
+            return results;
+        }
     }
 }

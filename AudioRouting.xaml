@@ -138,6 +138,7 @@
                         <Button Name="BtnStart" Content="START IN OUT" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,10,0"/>
                         <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Style="{StaticResource RedButtonStyle}" FontWeight="Bold" Width="80" Height="42" IsEnabled="False"/>
                     </Grid>
+                    <Button Name="BtnSaveStandard" Content="LƯU THIẾT BỊ CHUẨN" Click="BtnSaveStandard_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="36" Margin="0,0,0,20" IsEnabled="False"/>
                     <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38" Visibility="Collapsed"/>
 
                     <!-- Automated Checklist -->

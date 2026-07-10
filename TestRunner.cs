@@ -15,11 +15,64 @@ namespace SoncaAudioInspector
 
     public class TestRunner
     {
+        // Configuration options for frequency bands count
+        public static int BassCount = 6;
+        public static int MidCount = 8;
+        public static int TrebleCount = 5;
+
+        // Band boundaries
+        public const double BassMin = 20;
+        public const double BassMax = 250;
+        public const double MidMin = 250;
+        public const double MidMax = 4000;
+        public const double TrebleMin = 4000;
+        public const double TrebleMax = 20000;
+
+        public static double[] TestFrequencies
+        {
+            get
+            {
+                var freqs = new List<double>();
+                GenerateLogFrequencies(BassMin, BassMax, BassCount, freqs);
+                GenerateLogFrequencies(MidMin, MidMax, MidCount, freqs);
+                GenerateLogFrequencies(TrebleMin, TrebleMax, TrebleCount, freqs);
+                if (!freqs.Contains(1000.0))
+                {
+                    freqs.Add(1000.0);
+                }
+                return freqs.Distinct().OrderBy(f => f).ToArray();
+            }
+        }
+
+        private static void GenerateLogFrequencies(double min, double max, int count, List<double> list)
+        {
+            if (count <= 0) return;
+            if (count == 1)
+            {
+                list.Add(Math.Round(min));
+                return;
+            }
+            double factor = Math.Log(max / min);
+            for (int i = 0; i < count; i++)
+            {
+                double val = min * Math.Exp(factor * i / (count - 1));
+                list.Add(Math.Round(val));
+            }
+        }
+
         private readonly AudioEngine _audioEngine;
         
         // Target limits
         public double FreqResponseToleranceDb { get; set; } = 3.0; // +/- 3dB limit
         public double ThdLimitPercent { get; set; } = 0.5; // THD < 0.5% limit
+        public Dictionary<double, double> StandardCurve { get; set; } = null;
+        public double LastMaxDevPercent { get; private set; } = 0;
+        public double LastAvgDevPercent { get; private set; } = 0;
+        public bool HasComparedToStandard { get; private set; } = false;
+
+        public bool BassPassed { get; private set; } = true;
+        public bool MidPassed { get; private set; } = true;
+        public bool TreblePassed { get; private set; } = true;
 
         // Events for UI notification
         public event Action<List<TestStep>> OnStepsChanged;
@@ -62,6 +115,13 @@ namespace SoncaAudioInspector
             InitializeSteps();
             OnLogMessage?.Invoke("System", "Starting automated test procedure...");
 
+            LastMaxDevPercent = 0;
+            LastAvgDevPercent = 0;
+            HasComparedToStandard = false;
+            BassPassed = true;
+            MidPassed = true;
+            TreblePassed = true;
+
             // ----------------------------------------------------
             // Step 1: Device Connection Check
             // ----------------------------------------------------
@@ -96,25 +156,22 @@ namespace SoncaAudioInspector
             OnLogMessage?.Invoke("Step 2", "Starting frequency sweep from 20 Hz to 20 kHz...");
             OnTestSubstatusChanged?.Invoke("Freq", "Initializing...");
 
-            // Frequencies to test (logarithmic spacing)
-            double[] sweepFrequencies = new double[]
-            {
-                20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 15000, 20000
-                /*20, 50, 100, 150, 200, 250,
-                500, 750, 1000, 1250, 1500, 
-                3000, 4000, 5000, 6000, 7000,
-                10000, 15000, 20000*/
-            };
+            double[] sweepFrequencies = TestFrequencies;
 
             Dictionary<double, double> rawDbResults = new Dictionary<double, double>();
             bool freqResponsePass = true;
 
-            if (AudioEngine.flagGenerateSine)
+            if (AudioEngine.flagGenerateSeperateSine)
             {
                 double toneDuration = 0.5; // 500ms per tone (down from 800ms) to speed up testing while ensuring stability
                 foreach (var freq in sweepFrequencies)
                 {
                     if (_isCancelled) return;
+
+                    if (freq > 10000) 
+                    {
+                        toneDuration = 1.0;
+                    }
 
                     //OnLogMessage?.Invoke("Step 2", $"Testing frequency: " + toneDuration);
 
@@ -133,7 +190,7 @@ namespace SoncaAudioInspector
                     }
 
                     // Analyze the last 200ms of the 800ms window where audio is guaranteed to be fully settled and running
-                    int sampleRate = 48000;
+                    int sampleRate = _audioEngine.RecordingSampleRate;
                     int analyzeCount = (int)(sampleRate * 0.2); // 200ms
                     int startOffset = Math.Max(0, recorded.Length - analyzeCount);
                     int countToAnalyze = Math.Min(analyzeCount, recorded.Length - startOffset);
@@ -145,23 +202,16 @@ namespace SoncaAudioInspector
             }
             else
             {
-                // Play file sweep
-                string wavPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "audiocheck.net_sweep_20Hz_20000Hz_0dBFS_10s.wav");
-                if (!System.IO.File.Exists(wavPath))
-                {
-                    _steps[1].Status = "Fail";
-                    _steps[1].Details = "Sweep WAV file not found.";
-                    OnLogMessage?.Invoke("Step 2 Error", "Error: audiocheck.net_sweep_20Hz_20000Hz_0dBFS_10s.wav not found in app directory.");
-                    OnTestCompleted?.Invoke(false);
-                    return;
-                }
+                OnLogMessage?.Invoke("Step 2", "Playing and recording Multitone signal (1.5 seconds)...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Running Multitone (1.5s)...");
 
-                OnLogMessage?.Invoke("Step 2", "Playing sweep WAV file (10 seconds)...");
-                OnTestSubstatusChanged?.Invoke("Freq", "Playing Sweep (10s)...");
-                float[] recorded = await _audioEngine.PlayFileAndRecordAsync(wavPath, playbackDevice, recordingDevice, 10.5);
+                float[] recorded = await _audioEngine.PlayAndRecordAsync(
+                    playbackDevice, recordingDevice, SignalType.Multitone, 1000, 1.5);
 
-                OnLogMessage?.Invoke("Step 2", "Analyzing sweep recording...");
-                OnTestSubstatusChanged?.Invoke("Freq", "Analyzing Sweep...");
+                if (_isCancelled) return;
+
+                OnLogMessage?.Invoke("Step 2", "Analyzing multitone response...");
+                OnTestSubstatusChanged?.Invoke("Freq", "Analyzing Multitone...");
 
                 // Detect clipping
                 float maxSample = recorded.Length > 0 ? recorded.Select(Math.Abs).Max() : 0f;
@@ -170,36 +220,12 @@ namespace SoncaAudioInspector
                     OnLogMessage?.Invoke("Warning", "CRITICAL: Input clipping detected! Lower Playback Volume or Recording Gain.");
                 }
 
-                // Detect when signal starts (threshold check) to adjust for hardware/OS delay
-                int startSignalIndex = 0;
-                for (int i = 0; i < recorded.Length; i++)
-                {
-                    if (Math.Abs(recorded[i]) > 0.005f)
-                    {
-                        startSignalIndex = i;
-                        break;
-                    }
-                }
-
-                double latencyMs = (double)startSignalIndex / 48000 * 1000;
-                OnLogMessage?.Invoke("Step 2", $"Estimated latency: {latencyMs:F1} ms");
-
-                int sampleRate = 48000;
+                int sampleRate = _audioEngine.RecordingSampleRate;
+                var multitoneResults = DspProcessor.CalculateMultitoneResponse(recorded, sampleRate, sweepFrequencies);
 
                 foreach (var freq in sweepFrequencies)
                 {
-                    // For log sweep f = 20 * 1000^(t/10) => t = 10 * log10(f/20) / 3
-                    double t = 10.0 * Math.Log10(freq / 20.0) / 3.0;
-                    int targetSampleIndex = startSignalIndex + (int)(t * sampleRate);
-
-                    // 150ms analysis window centered around target time
-                    int windowSize = (int)(sampleRate * 0.150);
-                    int startOffset = Math.Max(0, targetSampleIndex - windowSize / 2);
-                    int countToAnalyze = Math.Min(windowSize, recorded.Length - startOffset);
-
-                    double rms = DspProcessor.CalculateRms(recorded, startOffset, countToAnalyze);
-                    double db = 20 * Math.Log10(rms + 1e-9);
-                    rawDbResults[freq] = db;
+                    rawDbResults[freq] = multitoneResults[freq];
                 }
             }
 
@@ -235,29 +261,136 @@ namespace SoncaAudioInspector
                 // Evaluate limits (only between 100 Hz and 15000 Hz, where typical device response is critical)
                 if (kvp.Key >= 100 && kvp.Key <= 15000)
                 {
-                    double absoluteDev = Math.Abs(normDb);
+                    double targetDb = 0;
+                    bool hasStandard = StandardCurve != null && StandardCurve.Count > 0;
+                    if (hasStandard && StandardCurve.ContainsKey(kvp.Key))
+                    {
+                        targetDb = StandardCurve[kvp.Key];
+                    }
+
+                    double absoluteDev = Math.Abs(normDb - targetDb);
                     if (absoluteDev > maxFreqDev)
                     {
                         maxFreqDev = absoluteDev;
                     }
-                    if (isSilent || absoluteDev > FreqResponseToleranceDb)
+
+                    bool isLimitExceeded = hasStandard && (absoluteDev > FreqResponseToleranceDb);
+                    if (isSilent || isLimitExceeded)
                     {
                         freqResponsePass = false;
+                        if (kvp.Key < MidMin) BassPassed = false;
+                        else if (kvp.Key < TrebleMin) MidPassed = false;
+                        else TreblePassed = false;
                     }
                 }
+            }
+
+            if (isSilent)
+            {
+                BassPassed = false;
+                MidPassed = false;
+                TreblePassed = false;
+            }
+
+            // Export FEQ results to a CSV file if flagSaveData is true
+            if (AudioEngine.flagSaveData)
+            {
+                try
+                {
+                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    string fileName = $"feq_results_{timestamp}.csv";
+                    string filePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, fileName);
+                    
+                    using (var writer = new System.IO.StreamWriter(filePath))
+                    {
+                        writer.WriteLine("Sonca Audio Inspector - FEQ Test Results");
+                        writer.WriteLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                        writer.WriteLine($"Test Mode: {(AudioEngine.flagGenerateSeperateSine ? "Sine Sweep" : "Multitone")}");
+                        writer.WriteLine($"Reference Level (1000 Hz): {referenceDb:F2} dBFS");
+                        writer.WriteLine($"Tolerance Limit: ±{FreqResponseToleranceDb:F1} dB");
+                        writer.WriteLine($"Overall Result: {(freqResponsePass ? "PASS" : "FAIL")}");
+                        writer.WriteLine($"Max Deviation: {maxFreqDev:F2} dB");
+                        writer.WriteLine();
+                        writer.WriteLine("Frequency (Hz),Raw Level (dBFS),Normalized Level (dBr),Limit Status");
+                        
+                        foreach (var kvp in rawDbResults)
+                        {
+                            double freq = kvp.Key;
+                            double rawDb = kvp.Value;
+                            double normDb = normalizedResults[freq];
+                            string status = "N/A";
+                            if (freq >= 100 && freq <= 15000)
+                            {
+                                status = Math.Abs(normDb) <= FreqResponseToleranceDb ? "PASS" : "FAIL";
+                            }
+                            writer.WriteLine($"{freq},{rawDb:F2},{normDb:F2},{status}");
+                        }
+                    }
+                    OnLogMessage?.Invoke("Step 2", $"Saved FEQ results to: {fileName}");
+                }
+                catch (Exception ex)
+                {
+                    OnLogMessage?.Invoke("Step 2 Error", $"Failed to save FEQ CSV: {ex.Message}");
+                }
+            }
+
+            // Compare with standard curve if available
+            double maxDevPercent = 0;
+            double sumDevPercent = 0;
+            int comparedCount = 0;
+
+            if (StandardCurve != null && StandardCurve.Count > 0)
+            {
+                foreach (var kvp in normalizedResults)
+                {
+                    double freq = kvp.Key;
+                    if (freq >= 100 && freq <= 15000 && StandardCurve.ContainsKey(freq))
+                    {
+                        double currDb = kvp.Value;
+                        double stdDb = StandardCurve[freq];
+                        double diffDb = currDb - stdDb;
+                        // Linear voltage ratio deviation
+                        double ratio = Math.Pow(10, diffDb / 20.0);
+                        double devPercent = Math.Abs(ratio - 1.0) * 100.0;
+
+                        sumDevPercent += devPercent;
+                        if (devPercent > maxDevPercent)
+                        {
+                            maxDevPercent = devPercent;
+                        }
+                        comparedCount++;
+                    }
+                }
+            }
+
+            string compareMsg = "";
+            if (comparedCount > 0)
+            {
+                double avgDevPercent = sumDevPercent / comparedCount;
+                LastMaxDevPercent = maxDevPercent;
+                LastAvgDevPercent = avgDevPercent;
+                HasComparedToStandard = true;
+                compareMsg = $" | Dev to Std: Max {maxDevPercent:F1}%, Avg {avgDevPercent:F1}%";
+                OnLogMessage?.Invoke("Step 2", $"Compared to Standard: Max Deviation = {maxDevPercent:F1}%, Avg Deviation = {avgDevPercent:F1}%");
             }
 
             if (freqResponsePass)
             {
                 _steps[1].Status = "Pass";
-                _steps[1].Details = $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
-                OnLogMessage?.Invoke("Step 2", $"Frequency response PASSED. Max deviation: {maxFreqDev:F2} dB");
+                _steps[1].Details = $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){compareMsg}";
+                OnLogMessage?.Invoke("Step 2", $"Frequency response PASSED. Max deviation: {maxFreqDev:F2} dB{compareMsg}");
             }
             else
             {
                 _steps[1].Status = "Fail";
-                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Deviation: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB)";
-                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max deviation: {maxFreqDev:F2} dB");
+                string failedBands = "";
+                if (!BassPassed) failedBands += "Bass ";
+                if (!MidPassed) failedBands += "Middle ";
+                if (!TreblePassed) failedBands += "Treble ";
+                string failedBandsMsg = string.IsNullOrEmpty(failedBands) ? "" : $" | Failed: {failedBands.Trim()}";
+
+                _steps[1].Details = isSilent ? "No signal detected (silent input)." : $"Max Dev: {maxFreqDev:F2} dB (Limit: ±{FreqResponseToleranceDb} dB){failedBandsMsg}{compareMsg}";
+                OnLogMessage?.Invoke("Step 2", isSilent ? "Frequency response FAILED: Silent input." : $"Frequency response FAILED. Max dev: {maxFreqDev:F2} dB{failedBandsMsg}{compareMsg}");
             }
 
             OnStepsChanged?.Invoke(_steps);

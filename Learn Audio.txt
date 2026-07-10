@@ -1,0 +1,82 @@
+TỔNG QUAN HỆ THỐNG & CÁC PHƯƠNG ÁN TỐI ƯU HÓA
+SoncaAudioInspector là ứng dụng WPF chuyên dụng để kiểm định chất lượng âm thanh đầu vào/đầu ra (In/Out) của các thiết bị Sonca. Ứng dụng thực hiện đo đạc tự động đáp tuyến tần số (Frequency Response - FEQ) và độ méo hài tổng hao (Total Harmonic Distortion - THD).
+
+I. KIẾN TRÚC HỆ THỐNG PHẦN MỀM
+Hệ thống được chia thành 3 lớp chính:
+
+Giao diện (UI - WPF): Hiển thị đồ thị đáp tuyến tần số (FEQ), phổ THD thời gian thực (Real-time Spectrum), danh sách thiết bị kết nối, cấu hình giới hạn (Tolerance/Limit), và bảng điều khiển chạy test thủ công (START IN OUT) hoặc tự động (START AUTO TEST).
+Audio Engine (NAudio / WASAPI): Đảm nhận việc phát tín hiệu âm thanh mẫu (Sine, Pink Noise, Multitone) ra Soundcard phát, đồng thời thu lại tín hiệu từ Soundcard thu ở chế độ Loopback hoặc Micro.
+Bộ xử lý tín hiệu số (DSP - DspProcessor): Áp dụng các thuật toán FFT (Fast Fourier Transform), lọc cửa sổ (Windowing), tính toán năng lượng (RMS), tính toán méo hài (THD), phân tích phổ đa âm để đưa ra kết quả Pass/Fail.
+II. CÁC PHƯƠNG ÁN TỐI ƯU HÓA ĐANG ÁP DỤNG
+1. Đồng bộ và Tự động cấu hình Tần số Đo (TestFrequencies)
+Vấn đề cũ: Danh sách tần số quét (Sweep) và tần số đa âm (Multitone) khai báo riêng lẻ ở nhiều nơi. Thay đổi một bên dễ quên bên kia, phải đếm số phần tử thủ công để khởi tạo mảng pha _multitonePhases = new double[19].
+Tối ưu áp dụng:
+Gộp tất cả tần số đo thành một mảng tĩnh duy nhất: 
+TestRunner.TestFrequencies
+.
+Tự động hóa việc cấp phát mảng pha đa âm trong 
+AudioEngine.cs
+ động theo chiều dài của mảng này (new double[_multitoneFrequencies.Length]).
+2. Tối ưu hóa tốc độ kiểm thử FEQ bằng phương pháp Multitone (1.5s vs 10s)
+Vấn đề cũ: Đo đáp tuyến tần số bằng cách quét từng tần số đơn lẻ (Sweep) mất nhiều thời gian do phải khởi động/dừng luồng âm thanh WASAPI nhiều lần (khoảng 10 giây). Hoặc dùng file phát Sweep WAV cũ cố định không linh hoạt.
+Tối ưu áp dụng:
+Khi tắt chế độ sine riêng lẻ (flagGenerateSeperateSine = false), hệ thống tự động chuyển sang chế độ Multitone (phát đồng thời tất cả các tần số test cùng lúc).
+Rút ngắn toàn bộ thời gian đo FEQ từ 10 giây xuống chỉ còn 1.5 giây nhưng vẫn đảm bảo lấy đủ dữ liệu biên độ của toàn bộ các tần số đo.
+3. Tối ưu hóa Hệ số đỉnh (Crest Factor) cho tín hiệu đa âm
+Vấn đề cũ: Sóng multitone nếu các sóng thành phần trùng pha ban đầu (
+0.0
+0.0) sẽ cộng hưởng tạo nên đỉnh biên độ rất lớn (high crest factor), dễ gây méo tiếng/cắt ngọn (analog clipping) trên thiết bị phần cứng.
+Tối ưu áp dụng:
+Áp dụng Newman Phase để dịch chuyển pha ban đầu của các sóng sine thành phần theo công thức: 
+ϕ
+i
+=
+π
+⋅
+i
+2
+N
+ϕ 
+i
+​
+ = 
+N
+π⋅i 
+2
+ 
+​
+  trong 
+AudioEngine.cs
+.
+Giúp tín hiệu âm thanh tổng hợp dàn đều biên độ, giảm thiểu tối đa hệ số đỉnh và tránh hiện tượng méo clipping biên độ ở ngõ ra.
+4. Triệt tiêu sai số lệch xung nhịp (Clock Drift)
+Vấn đề cũ: Phát âm thanh trên một Soundcard và thu lại trên một Soundcard khác sẽ có sự chênh lệch xung nhịp phần cứng (Clock Drift). Tần số phát 
+1000
+ Hz
+1000 Hz có thể bị dịch thành 
+1001
+ Hz
+1001 Hz khi thu. Thuật toán FFT tìm kiếm bin tĩnh sẽ bị lệch đỉnh ở dải tần số cao, gây sụt giảm giả tạo trên đồ thị đáp tuyến.
+Tối ưu áp dụng:
+Thiết lập vùng tìm kiếm đỉnh tần số động (Dynamic Window Search) trong 
+DspProcessor.cs
+ tỷ lệ thuận với tần số cần đo: dung sai 1.5%, tối thiểu 15 Hz. Thuật toán luôn dò trúng đỉnh sóng thực tế thu được bất kể thiết bị bị lệch clock bao nhiêu.
+5. Làm phẳng biểu đồ Multitone bằng phương pháp 5-bin Energy Summation
+Vấn đề cũ: Khi tần số đo không nằm trúng tâm vạch (Bin Center) của FFT sẽ xảy ra hiện tượng Scallop Loss làm biên độ đo được bị suy hao giả (lên tới 1.5 dB), tạo ra các đường răng cưa gãy khúc trên đồ thị.
+Tối ưu áp dụng:
+Không lấy biên độ của một vạch cao nhất, thuật toán tính tổng năng lượng của 5 vạch FFT liên tiếp bao quanh đỉnh sóng (peakBin - 2 đến peakBin + 2).
+Áp dụng hệ số hiệu chỉnh năng lượng chính xác cho cửa sổ Hann là 
+4
+/
+3
+4/3
+​
+  để khôi phục biên độ thực tế trong 
+DspProcessor.cs
+.
+Phép đo Multitone đạt độ phẳng và chính xác tiệm cận tuyệt đối so với đo từng tần số đơn (Single Sine).
+6. Tự động hóa quy trình kiểm thử toàn diện (START AUTO TEST)
+Vấn đề cũ: Kỹ thuật viên phải nhấn chọn từng cổng thiết bị và chạy test thủ công rất mất thời gian.
+Tối ưu áp dụng:
+Tự động thay đổi giới hạn dung sai (Tolerance) và méo hài (THD Limit) dựa vào tên thiết bị được chọn (ví dụ: các ngõ MIC 1 / MIC 2 tự động tăng dung sai lên 4.5 dB và giới hạn THD lên 0.8% để phù hợp với đặc thù phần cứng MIC, còn các ngõ khác dùng chuẩn mặc định 3.0 dB và 0.5%).
+Nút START AUTO TEST tự động chạy tuần tự toàn bộ các cấu hình thiết bị đầu vào/đầu ra, lưu trữ và hiển thị kết quả chi tiết của từng bước kiểm tra (FEQ Pass/Fail kèm độ lệch tối đa, THD Pass/Fail kèm chỉ số %) lên bảng theo dõi một cách trực quan.

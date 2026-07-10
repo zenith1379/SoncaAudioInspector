@@ -48,6 +48,20 @@ namespace SoncaAudioInspector
         
         [System.Text.Json.Serialization.JsonPropertyName("Recording In")]
         public string RecordingIn { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("Playback Volume")]
+        public double? PlaybackVolume { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("Recording Gain")]
+        public double? RecordingGain { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("THD Limit")]
+        public double? ThdLimit { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("enable")]
+        public bool? Enable { get; set; }
+
+        public bool IsEnabled => Enable ?? true;
     }
 
     public class AppConfig

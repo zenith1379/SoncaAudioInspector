@@ -5,18 +5,18 @@
       "testItems": {
         "InOut": {
           "Description": "Test FEQ and THD",
-		  "Description 2": "Chua du ngo",
+          "Description 2": "Chua du ngo",
           "Devices": {
             "Input": {
               "SoundCard": "MI_SAM",
-			  "MIC 1": "MIC 1"
+              "MIC 1": "MIC 1"
             },
             "Output": {
               "6.5 Jack": "FastTrack Pro"
             }
           },
           "Tests": [
-			{
+            {
               "id": "IO001",
               "name": "MIC 1 In -> 6.5 Jack Out",
               "Playback Out": "MIC 1",
@@ -27,6 +27,79 @@
               "name": "SoundCard In -> 6.5 Jack Out",
               "Playback Out": "SoundCard",
               "Recording In": "6.5 Jack"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "model": "D'AURIS 500",
+      "testItems": {
+        "InOut": {
+          "Description": "Test FEQ and THD for D'AURIS 500",
+          "Description 2": "Kiem tra tat ca cac ngo vao va ngo ra",
+          "Devices": {
+            "Input": {
+              "USB Soundcard": "CS3600",
+              "Line in 3.5mm": "LINE IN",
+              "Bluetooth": "D'AURIS 500",
+              "MIC 1": "not setup yet MIC 1",
+			  "MIC 2": "not setup yet MIC 2",
+              "Optical In": "not setup yet Optical In",
+			  "MIC DAY": "not setup yet MIC DAY",
+			  "GUITAR": "not setup yet GUITAR"
+            },
+            "Output": {
+              "Measurement Mic": "Umik-1",
+              "Line out 3.5mm": "LINE OUT",
+              "Type C Rec Out": "MI_LCD"
+            }
+          },
+          "Tests": [
+            {
+              "id": "DA001",
+              "name": "Line In 3.5mm -> Physical Speaker (Umik-1)",
+              "Playback Out": "Line in 3.5mm",
+              "Recording In": "Measurement Mic"
+            },
+            {
+              "id": "DA002",
+              "name": "Bluetooth Playback -> Physical Speaker (Umik-1)",
+              "Playback Out": "Bluetooth",
+              "Recording In": "Measurement Mic"
+            },
+            {
+              "id": "DA003",
+              "name": "Bluetooth Playback -> Type C Recording",
+              "Playback Out": "Bluetooth",
+              "Recording In": "Type C Rec Out"
+            },
+            {
+              "id": "DA004",
+              "name": "USB Playback -> Physical Speaker (Umik-1)",
+              "Playback Out": "USB Soundcard",
+              "Recording In": "Measurement Mic"
+            },
+            {
+              "id": "DA005",
+              "name": "USB Playback -> Line out 3.5mm",
+              "Playback Out": "USB Soundcard",
+              "Recording In": "Line out 3.5mm"
+            },
+            {
+              "id": "DA005_HighVol",
+              "name": "USB Playback -> Physical Speaker (High Volume THD)",
+              "Playback Out": "USB Soundcard",
+              "Recording In": "Measurement Mic",
+              "Playback Volume": 85,
+              "Recording Gain": 50,
+              "THD Limit": 1.5
+            },
+            {
+              "id": "DA006",
+              "name": "USB Playback -> Type C Recording",
+              "Playback Out": "USB Soundcard",
+              "Recording In": "Type C Rec Out"
             }
           ]
         }
