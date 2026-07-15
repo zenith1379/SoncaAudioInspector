@@ -45,9 +45,7 @@
               "Bluetooth": "D'AURIS 500",
               "MIC 1": "not setup yet MIC 1",
 			  "MIC 2": "not setup yet MIC 2",
-              "Optical In": "not setup yet Optical In",
-			  "MIC DAY": "not setup yet MIC DAY",
-			  "GUITAR": "not setup yet GUITAR"
+              "Optical In": "not setup yet Optical In"
             },
             "Output": {
               "Measurement Mic": "Umik-1",
@@ -81,19 +79,19 @@
               "Recording In": "Measurement Mic"
             },
             {
-              "id": "DA005",
-              "name": "USB Playback -> Line out 3.5mm",
-              "Playback Out": "USB Soundcard",
-              "Recording In": "Line out 3.5mm"
-            },
-            {
-              "id": "DA005_HighVol",
+              "id": "DA004_HighVol",
               "name": "USB Playback -> Physical Speaker (High Volume THD)",
               "Playback Out": "USB Soundcard",
               "Recording In": "Measurement Mic",
               "Playback Volume": 85,
               "Recording Gain": 50,
               "THD Limit": 1.5
+            },
+            {
+              "id": "DA005",
+              "name": "USB Playback -> Line out 3.5mm",
+              "Playback Out": "USB Soundcard",
+              "Recording In": "Line out 3.5mm"
             },
             {
               "id": "DA006",

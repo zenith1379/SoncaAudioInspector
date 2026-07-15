@@ -800,11 +800,11 @@ namespace SoncaAudioInspector
         {
             if (_audioEngine != null)
             {
-                _audioEngine.PlaybackVolume = e.NewValue / 100.0;
+                _audioEngine.PlaybackVolume = Math.Round(e.NewValue) / 100.0;
             }
             if (LblPlaybackVolume != null)
             {
-                LblPlaybackVolume.Text = $"{(int)e.NewValue}%";
+                LblPlaybackVolume.Text = $"{(int)Math.Round(e.NewValue)}%";
             }
             CheckAndLoadStandardDevice();
         }
@@ -813,11 +813,11 @@ namespace SoncaAudioInspector
         {
             if (_audioEngine != null)
             {
-                _audioEngine.RecordingGain = e.NewValue / 100.0;
+                _audioEngine.RecordingGain = Math.Round(e.NewValue) / 100.0;
             }
             if (LblRecordingGain != null)
             {
-                LblRecordingGain.Text = $"{(int)e.NewValue}%";
+                LblRecordingGain.Text = $"{(int)Math.Round(e.NewValue)}%";
             }
             CheckAndLoadStandardDevice();
         }
@@ -1117,8 +1117,8 @@ namespace SoncaAudioInspector
                 outDevice = ComboBluetooth.SelectedItem is DeviceItem btDevice ? btDevice.DisplayName : "UnknownOut";
             }
             string inDevice = ComboRecording.SelectedItem is DeviceItem rDevice ? rDevice.DisplayName : "UnknownIn";
-            double playVol = SliderPlaybackVolume.Value;
-            double recGain = SliderRecordingGain.Value;
+            double playVol = Math.Round(SliderPlaybackVolume.Value);
+            double recGain = Math.Round(SliderRecordingGain.Value);
             double tol = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
             double thdLim = ParseDoubleSafe(TxtThdLimit.Text, 0.5);
 

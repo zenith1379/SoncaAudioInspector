@@ -22,7 +22,7 @@ namespace SoncaAudioInspector
         private WasapiCapture _wasapiCapture;
         private SignalSampleProvider _signalProvider;
         private List<float> _recordedSamples;
-        private object _lock = new object();
+        private object _lock = new object();    
 
         // Volume and Gain controls (0.0 to 1.0 / 2.0)
         public double PlaybackVolume { get; set; } = 0.8;
