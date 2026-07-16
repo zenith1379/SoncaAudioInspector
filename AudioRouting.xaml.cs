@@ -619,6 +619,30 @@ namespace SoncaAudioInspector
                 sp.LineWidth = 3f;
                 sp.Color = ScottPlot.Color.FromHex("#10B981"); // neon green
                 sp.MarkerSize = 6f;
+
+                // Highlight failed points with red circles
+                for (int i = 0; i < _freqs.Count; i++)
+                {
+                    double freq = _freqs[i];
+                    if (freq >= 100 && freq <= 15000)
+                    {
+                        double targetDb = 0;
+                        if (_standardCurve != null && _standardCurve.ContainsKey(freq))
+                        {
+                            targetDb = _standardCurve[freq];
+                        }
+                        double measuredDb = yDb[i];
+                        double deviation = Math.Abs(measuredDb - targetDb);
+                        if (deviation > tolerance)
+                        {
+                            var failCircle = PlotFreqResponse.Plot.Add.Marker(xLog[i], measuredDb);
+                            failCircle.Color = ScottPlot.Colors.Red;
+                            failCircle.Size = 14f;
+                            failCircle.MarkerStyle.Shape = MarkerShape.OpenCircle;
+                            failCircle.LineWidth = 2f;
+                        }
+                    }
+                }
             }
 
             if (isSilent)
@@ -694,7 +718,7 @@ namespace SoncaAudioInspector
         private void SetFinalVerdict(bool success)
         {
             BtnStart.IsEnabled = true;
-            BtnCancel.IsEnabled = false;
+            BtnSaveStandardReference.IsEnabled = true;
             BtnNoiseTest.IsEnabled = true;
             BtnSaveStandard.IsEnabled = _freqs.Count > 0;
 
@@ -740,7 +764,7 @@ namespace SoncaAudioInspector
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
 
             BtnStart.IsEnabled = false;
-            BtnCancel.IsEnabled = true;
+            BtnSaveStandardReference.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
             BtnSaveStandard.IsEnabled = false;
 
@@ -779,7 +803,7 @@ namespace SoncaAudioInspector
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); // Yellow
 
             BtnStart.IsEnabled = false;
-            BtnCancel.IsEnabled = true;
+            BtnSaveStandardReference.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
 
             var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
@@ -790,7 +814,7 @@ namespace SoncaAudioInspector
             await _testRunner.RunNoiseTestAsync(playbackDevice, recordingDevice);
 
             BtnStart.IsEnabled = true;
-            BtnCancel.IsEnabled = false;
+            BtnSaveStandardReference.IsEnabled = true;
             BtnNoiseTest.IsEnabled = true;
             LblVerdict.Text = "NOISE DONE";
             LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153)); // Green
@@ -875,7 +899,7 @@ namespace SoncaAudioInspector
 
             BtnStart.IsEnabled = false;
             BtnStartAutoTest.IsEnabled = false;
-            BtnCancel.IsEnabled = true;
+            BtnSaveStandardReference.IsEnabled = false;
             BtnNoiseTest.IsEnabled = false;
             BtnSaveStandard.IsEnabled = false;
 
@@ -1043,6 +1067,73 @@ namespace SoncaAudioInspector
                 if (!testPassed)
                 {
                     suitePassed = false;
+
+                    // Capture screenshots on failure
+                    string serialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "UNKNOWN_SERIAL";
+                    if (string.IsNullOrEmpty(serialNumber))
+                    {
+                        serialNumber = "UNKNOWN_SERIAL";
+                    }
+
+                    string selectedModel = (Application.Current.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString()?.Trim() ?? "UNKNOWN_MODEL";
+                    if (string.IsNullOrEmpty(selectedModel))
+                    {
+                        selectedModel = "UNKNOWN_MODEL";
+                    }
+
+                    string stepName = test.Name ?? "UNKNOWN_STEP";
+                    foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+                    {
+                        stepName = stepName.Replace(c, '_');
+                    }
+                    stepName = stepName.Replace(' ', '_');
+
+                    string failDataPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
+                    if (!System.IO.Directory.Exists(failDataPath))
+                    {
+                        try
+                        {
+                            System.IO.Directory.CreateDirectory(failDataPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendLog("Error", $"Could not create 'fail data' folder: {ex.Message}");
+                        }
+                    }
+
+                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+                    // Check for FEQ failure
+                    if (!_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
+                    {
+                        string filename = $"{serialNumber}_{selectedModel}_FEQ_{stepName}_{timestamp}.png";
+                        string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                        try
+                        {
+                            PlotFreqResponse.Plot.SavePng(fullPath, 800, 450);
+                            AppendLog("Export", $"Saved FEQ failure screenshot: {filename}");
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendLog("Error", $"Failed to save FEQ screenshot: {ex.Message}");
+                        }
+                    }
+
+                    // Check for THD failure
+                    if (!_testRunner.ThdPassed)
+                    {
+                        string filename = $"{serialNumber}_{selectedModel}_THD_{timestamp}.png";
+                        string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                        try
+                        {
+                            PlotThdFft.Plot.SavePng(fullPath, 800, 450);
+                            AppendLog("Export", $"Saved THD failure screenshot: {filename}");
+                        }
+                        catch (Exception ex)
+                        {
+                            AppendLog("Error", $"Failed to save THD screenshot: {ex.Message}");
+                        }
+                    }
                 }
 
                 test.Status = testPassed ? "PASS" : "FAIL";
@@ -1054,7 +1145,7 @@ namespace SoncaAudioInspector
 
             BtnStart.IsEnabled = true;
             BtnStartAutoTest.IsEnabled = true;
-            BtnCancel.IsEnabled = false;
+            BtnSaveStandardReference.IsEnabled = true;
             BtnNoiseTest.IsEnabled = true;
 
             SetFinalVerdict(suitePassed);
@@ -1208,6 +1299,146 @@ namespace SoncaAudioInspector
             catch (Exception ex)
             {
                 MessageBox.Show($"Lỗi khi lưu thiết bị chuẩn: {ex.Message}", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void BtnSaveStandardReference_Click(object sender, RoutedEventArgs e)
+        {
+            SaveConfig();
+
+            var usbDevice = (ComboPlayback.SelectedItem as DeviceItem)?.Device;
+            var btDevice = (ComboBluetooth.SelectedItem as DeviceItem)?.Device;
+            var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDevice : btDevice;
+            var recordingDevice = (ComboRecording.SelectedItem as DeviceItem)?.Device;
+
+            if (playbackDevice == null || recordingDevice == null)
+            {
+                MessageBox.Show("Vui lòng chọn đầy đủ thiết bị phát và thu!", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            BtnStart.IsEnabled = false;
+            BtnSaveStandardReference.IsEnabled = false;
+            BtnNoiseTest.IsEnabled = false;
+            BtnSaveStandard.IsEnabled = false;
+
+            var allRunsDbValues = new Dictionary<double, List<double>>();
+            bool isCancelled = false;
+            int totalRuns = 5;
+
+            _testRunner.FreqResponseToleranceDb = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
+            _testRunner.ThdLimitPercent = ParseDoubleSafe(TxtThdLimit.Text, 0.5);
+            _testRunner.StandardCurve = null; 
+
+            for (int run = 1; run <= totalRuns; run++)
+            {
+                _freqs.Clear();
+                _dbValues.Clear();
+                PlotFreqResponse.Plot.Clear();
+                PlotThdFft.Plot.Clear();
+                InitCharts();
+
+                TxtFreqStatus.Text = "";
+                TxtThdStatus.Text = "";
+                BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
+                BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
+                LblVerdict.Text = $"RUNNING {run}/{totalRuns}...";
+                LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(250, 204, 21)); 
+                AppendLog("Calibration", $"Starting calibration run {run}/{totalRuns}");
+
+                await _testRunner.RunTestAsync(playbackDevice, recordingDevice);
+
+                if (_freqs.Count == 0 || _dbValues.Count == 0)
+                {
+                    MessageBox.Show($"Lỗi xảy ra hoặc phép đo bị hủy ở lần chạy thứ {run}.", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Error);
+                    isCancelled = true;
+                    break;
+                }
+
+                for (int i = 0; i < _freqs.Count; i++)
+                {
+                    double freq = _freqs[i];
+                    double db = _dbValues[i];
+                    if (!allRunsDbValues.ContainsKey(freq))
+                    {
+                        allRunsDbValues[freq] = new List<double>();
+                    }
+                    allRunsDbValues[freq].Add(db);
+                }
+
+                // Small delay between runs to stabilize audio engine
+                await Task.Delay(500);
+            }
+
+            if (!isCancelled && allRunsDbValues.Count > 0)
+            {
+                var finalFrequencies = new List<double>();
+                var finalDbValues = new List<double>();
+
+                foreach (var kvp in allRunsDbValues.OrderBy(k => k.Key))
+                {
+                    double freq = kvp.Key;
+                    var vals = kvp.Value;
+                    if (vals.Count < 3) continue;
+
+                    vals.Sort();
+                    double finalDb = 0;
+                    if (vals.Count == 5)
+                    {
+                        finalDb = (vals[1] + vals[2] + vals[3]) / 3.0;
+                    }
+                    else
+                    {
+                        finalDb = vals.Average();
+                    }
+
+                    finalFrequencies.Add(freq);
+                    finalDbValues.Add(finalDb);
+                }
+
+                try
+                {
+                    string filePath = GetStandardDeviceFileName();
+                    using (var writer = new System.IO.StreamWriter(filePath))
+                    {
+                        writer.WriteLine("Frequency (Hz),Normalized Level (dBr)");
+                        for (int i = 0; i < finalFrequencies.Count; i++)
+                        {
+                            writer.WriteLine($"{finalFrequencies[i]},{finalDbValues[i]:F4}");
+                        }
+                    }
+                    MessageBox.Show($"Đã lưu thông số thiết bị chuẩn thành công (tính bằng trung bình lược bỏ của 5 lần chạy) vào file:\n{System.IO.Path.GetFileName(filePath)}", "Thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+                    
+                    CheckAndLoadStandardDevice();
+
+                    _freqs = finalFrequencies;
+                    _dbValues = finalDbValues;
+                    UpdateFreqResponseChart();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Lỗi khi lưu thiết bị chuẩn: {ex.Message}", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+
+            BtnStart.IsEnabled = true;
+            BtnSaveStandardReference.IsEnabled = true;
+            BtnNoiseTest.IsEnabled = true;
+            BtnSaveStandard.IsEnabled = _freqs.Count > 0;
+
+            if (!isCancelled)
+            {
+                BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(6, 95, 70)); 
+                BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(16, 185, 129)); 
+                LblVerdict.Text = "CALIB DONE";
+                LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(52, 211, 153));
+            }
+            else
+            {
+                BorderVerdict.Background = new WpfSolidColorBrush(WpfColor.FromRgb(24, 24, 27));
+                BorderVerdict.BorderBrush = new WpfSolidColorBrush(WpfColor.FromRgb(39, 39, 42));
+                LblVerdict.Text = "FAILED/CANCEL";
+                LblVerdict.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(248, 113, 113));
             }
         }
     }

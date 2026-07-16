@@ -73,6 +73,7 @@ namespace SoncaAudioInspector
         public bool BassPassed { get; private set; } = true;
         public bool MidPassed { get; private set; } = true;
         public bool TreblePassed { get; private set; } = true;
+        public bool ThdPassed { get; private set; } = true;
 
         // Events for UI notification
         public event Action<List<TestStep>> OnStepsChanged;
@@ -121,6 +122,7 @@ namespace SoncaAudioInspector
             BassPassed = true;
             MidPassed = true;
             TreblePassed = true;
+            ThdPassed = true;
 
             // ----------------------------------------------------
             // Step 1: Device Connection Check
@@ -435,6 +437,7 @@ namespace SoncaAudioInspector
             bool isThdSilent = thdDbFS < -70.0;
 
             bool thdPass = !isThdSilent && thdCalc.thdPercent <= ThdLimitPercent;
+            ThdPassed = thdPass;
 
             if (thdPass)
             {

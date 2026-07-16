@@ -233,10 +233,17 @@ namespace SoncaAudioInspector
                 await Task.Delay(1200); // Wait so they can see success state before loading login window
 
                 // Launch login window
-                LoginWindow login = new LoginWindow();
+                /*LoginWindow login = new LoginWindow();
                 App.Current.MainWindow = login;
                 login.Show();
+                this.Close();*/
+
+                // Launch main window
+                MainWindow main = new MainWindow();
+                App.Current.MainWindow = main;
+                main.Show();
                 this.Close();
+
             }
             else
             {

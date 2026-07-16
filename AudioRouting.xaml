@@ -133,12 +133,12 @@
                     <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Name="BtnStart" Content="START IN OUT" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,10,0"/>
-                        <Button Name="BtnCancel" Grid.Column="1" Content="Cancel" Click="BtnCancel_Click" Style="{StaticResource RedButtonStyle}" FontWeight="Bold" Width="80" Height="42" IsEnabled="False"/>
+                        <Button Name="BtnStart" Content="START LINE" Click="BtnStart_Click" Style="{StaticResource GreenButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,5,0"/>
+                        <Button Name="BtnSaveStandard" Grid.Column="1" Content="LƯU LINE" Click="BtnSaveStandard_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="5,0,0,0" IsEnabled="False"/>
                     </Grid>
-                    <Button Name="BtnSaveStandard" Content="LƯU THIẾT BỊ CHUẨN" Click="BtnSaveStandard_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="36" Margin="0,0,0,20" IsEnabled="False"/>
+                    <Button Name="BtnSaveStandardReference" Content="TÌM LINE CHUẨN" Click="BtnSaveStandardReference_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,0,20"/>
                     <Button Name="BtnNoiseTest" Content="TEST NOISE FLOOR (SILENCE)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38" Visibility="Collapsed"/>
 
                     <!-- Automated Checklist -->
