@@ -1198,7 +1198,7 @@ namespace SoncaAudioInspector
             // Check for FEQ failure
             if (!_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
             {
-                string filename = $"{serialNumber}_{selectedModel}_FEQ_{stepName}_{timestamp}.png";
+                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_FEQ_{stepName}.png";
                 string fullPath = System.IO.Path.Combine(failDataPath, filename);
                 try
                 {
@@ -1214,7 +1214,7 @@ namespace SoncaAudioInspector
             // Check for THD failure
             if (!_testRunner.ThdPassed)
             {
-                string filename = $"{serialNumber}_{selectedModel}_THD_{timestamp}.png";
+                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_THD.png";
                 string fullPath = System.IO.Path.Combine(failDataPath, filename);
                 try
                 {
