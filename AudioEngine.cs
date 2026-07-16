@@ -16,7 +16,7 @@ namespace SoncaAudioInspector
         public static bool flagSaveFile = false; // TODO TEST
         public static bool flagGenerateSeperateSine = false; // TODO TEST
         public static bool flagSaveData = false; // // TODO TEST
-        public static bool flagExportImageSingleLine = false; // // TODO TEST
+        public static bool flagExportImageSingleLine = true; // // TODO TEST
 
         private MMDeviceEnumerator _enumerator;
         private WasapiOut _wasapiOut;

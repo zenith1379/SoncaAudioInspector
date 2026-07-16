@@ -135,6 +135,10 @@ namespace SoncaAudioInspector
                 else
                 {
                     SetFinalVerdict(Success);
+                    if (!Success && AudioEngine.flagExportImageSingleLine && _standardCurve != null && _standardCurve.Count > 0)
+                    {
+                        SaveFailureScreenshots("SingleLine");
+                    }
                 }
             });
 
@@ -654,14 +658,7 @@ namespace SoncaAudioInspector
                 txt.LabelAlignment = Alignment.MiddleCenter;
             }
 
-            if (_testRunner != null && _testRunner.HasComparedToStandard)
-            {
-                var txtDev = PlotFreqResponse.Plot.Add.Text($"Lệch chuẩn: {_testRunner.LastAvgDevPercent:F1}%", 1.4, 11.5);
-                txtDev.LabelFontColor = ScottPlot.Color.FromHex("#EAB308"); // Gold/Yellow
-                txtDev.LabelFontSize = 13;
-                txtDev.LabelBold = true;
-                txtDev.LabelAlignment = Alignment.UpperLeft;
-            }
+
 
             PlotFreqResponse.Plot.Legend.IsVisible = false;
             ConfigureLogarithmicXAxis(PlotFreqResponse.Plot);
@@ -1067,73 +1064,7 @@ namespace SoncaAudioInspector
                 if (!testPassed)
                 {
                     suitePassed = false;
-
-                    // Capture screenshots on failure
-                    string serialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "UNKNOWN_SERIAL";
-                    if (string.IsNullOrEmpty(serialNumber))
-                    {
-                        serialNumber = "UNKNOWN_SERIAL";
-                    }
-
-                    string selectedModel = (Application.Current.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString()?.Trim() ?? "UNKNOWN_MODEL";
-                    if (string.IsNullOrEmpty(selectedModel))
-                    {
-                        selectedModel = "UNKNOWN_MODEL";
-                    }
-
-                    string stepName = test.Name ?? "UNKNOWN_STEP";
-                    foreach (char c in System.IO.Path.GetInvalidFileNameChars())
-                    {
-                        stepName = stepName.Replace(c, '_');
-                    }
-                    stepName = stepName.Replace(' ', '_');
-
-                    string failDataPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
-                    if (!System.IO.Directory.Exists(failDataPath))
-                    {
-                        try
-                        {
-                            System.IO.Directory.CreateDirectory(failDataPath);
-                        }
-                        catch (Exception ex)
-                        {
-                            AppendLog("Error", $"Could not create 'fail data' folder: {ex.Message}");
-                        }
-                    }
-
-                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-
-                    // Check for FEQ failure
-                    if (!_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
-                    {
-                        string filename = $"{serialNumber}_{selectedModel}_FEQ_{stepName}_{timestamp}.png";
-                        string fullPath = System.IO.Path.Combine(failDataPath, filename);
-                        try
-                        {
-                            PlotFreqResponse.Plot.SavePng(fullPath, 800, 450);
-                            AppendLog("Export", $"Saved FEQ failure screenshot: {filename}");
-                        }
-                        catch (Exception ex)
-                        {
-                            AppendLog("Error", $"Failed to save FEQ screenshot: {ex.Message}");
-                        }
-                    }
-
-                    // Check for THD failure
-                    if (!_testRunner.ThdPassed)
-                    {
-                        string filename = $"{serialNumber}_{selectedModel}_THD_{timestamp}.png";
-                        string fullPath = System.IO.Path.Combine(failDataPath, filename);
-                        try
-                        {
-                            PlotThdFft.Plot.SavePng(fullPath, 800, 450);
-                            AppendLog("Export", $"Saved THD failure screenshot: {filename}");
-                        }
-                        catch (Exception ex)
-                        {
-                            AppendLog("Error", $"Failed to save THD screenshot: {ex.Message}");
-                        }
-                    }
+                    SaveFailureScreenshots(test.Name ?? "UNKNOWN_STEP");
                 }
 
                 test.Status = testPassed ? "PASS" : "FAIL";
@@ -1227,6 +1158,74 @@ namespace SoncaAudioInspector
             string key = GetStandardDeviceKey();
             if (string.IsNullOrEmpty(key)) return "";
             return System.IO.Path.Combine(GetStandardsDirectory(), $"standard_{key}.csv");
+        }
+
+        private void SaveFailureScreenshots(string stepName)
+        {
+            string serialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "UNKNOWN_SERIAL";
+            if (string.IsNullOrEmpty(serialNumber))
+            {
+                serialNumber = "UNKNOWN_SERIAL";
+            }
+
+            string selectedModel = (Application.Current.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString()?.Trim() ?? "UNKNOWN_MODEL";
+            if (string.IsNullOrEmpty(selectedModel))
+            {
+                selectedModel = "UNKNOWN_MODEL";
+            }
+
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+            {
+                stepName = stepName.Replace(c, '_');
+            }
+            stepName = stepName.Replace(' ', '_');
+
+            string failDataPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
+            if (!System.IO.Directory.Exists(failDataPath))
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(failDataPath);
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("Error", $"Could not create 'fail data' folder: {ex.Message}");
+                }
+            }
+
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            // Check for FEQ failure
+            if (!_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
+            {
+                string filename = $"{serialNumber}_{selectedModel}_FEQ_{stepName}_{timestamp}.png";
+                string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                try
+                {
+                    PlotFreqResponse.Plot.SavePng(fullPath, 800, 450);
+                    AppendLog("Export", $"Saved FEQ failure screenshot: {filename}");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("Error", $"Failed to save FEQ screenshot: {ex.Message}");
+                }
+            }
+
+            // Check for THD failure
+            if (!_testRunner.ThdPassed)
+            {
+                string filename = $"{serialNumber}_{selectedModel}_THD_{timestamp}.png";
+                string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                try
+                {
+                    PlotThdFft.Plot.SavePng(fullPath, 800, 450);
+                    AppendLog("Export", $"Saved THD failure screenshot: {filename}");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("Error", $"Failed to save THD screenshot: {ex.Message}");
+                }
+            }
         }
 
         private void CheckAndLoadStandardDevice()
