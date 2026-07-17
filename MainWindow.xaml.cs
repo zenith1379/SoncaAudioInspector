@@ -237,16 +237,52 @@ namespace SoncaAudioInspector
             ModernMessageBox.Show(this, $"Đã quét được mã Serial Number: {mockSerial}", "Quét mã thành công", ModernMessageBox.MessageBoxType.Info);
         }
 
+        private async void BtnAddProduct_Click(object sender, RoutedEventArgs e)
+        {
+            string serial = TxtSerialNumber.Text.Trim();
+            string model = ComboModels.SelectedItem?.ToString()?.Trim() ?? "";
+
+            if (string.IsNullOrEmpty(serial) || string.IsNullOrEmpty(model))
+            {
+                ModernMessageBox.Show(this, "Vui lòng nhập Serial Number và chọn Model để thêm sản phẩm!", "Thông báo", ModernMessageBox.MessageBoxType.Warning);
+                return;
+            }
+
+            BtnAddProduct.IsEnabled = false;
+            try
+            {
+                // We assume barcode is same as serial if no separate input is present.
+                ProductInfo? product = await ServerEngine.AddProductAsync(serial, serial, model);
+                if (product != null)
+                {
+                    ModernMessageBox.Show(this, $"Sản phẩm {serial} (Model: {model}) đã được thêm thành công lên server!", "Thêm thành công", ModernMessageBox.MessageBoxType.Info);
+                    
+                    // Optionally, update the visual AI view product if the user adds it while testing
+                    _visualAIView.SetCurrentProduct(product);
+                }
+                else
+                {
+                    ModernMessageBox.Show(this, ServerEngine.LastError ?? "Có lỗi xảy ra khi thêm sản phẩm.", "Lỗi thêm sản phẩm", ModernMessageBox.MessageBoxType.Error);
+                }
+            }
+            finally
+            {
+                BtnAddProduct.IsEnabled = true;
+            }
+        }
+
         private async void BtnCheckStatus_Click(object sender, RoutedEventArgs e)
         {
             string serial = TxtSerialNumber.Text.Trim();
+            string model = ComboModels.SelectedItem?.ToString()?.Trim() ?? "";
+
             if (string.IsNullOrEmpty(serial))
             {
                 ModernMessageBox.Show(this, "Vui lòng nhập hoặc quét mã Serial Number trước khi kiểm tra!", "Thông báo", ModernMessageBox.MessageBoxType.Warning);
                 return;
             }
 
-            ProductInfo? product = await RequestProductStatusAsync(serial);
+            ProductInfo? product = await RequestProductStatusAsync(serial, model);
             bool passed = product is not null;
             if (passed)
             {
@@ -270,13 +306,16 @@ namespace SoncaAudioInspector
             else
             {
                 _visualAIView.SetCurrentProduct(null);
-                ModernMessageBox.Show(this, ServerEngine.LastError ?? $"Thiết bị (Serial: {serial}) có trạng thái không khả dụng hoặc lỗi kết nối!", "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Error);
+                string errorMsg = ServerEngine.LastError != null && ServerEngine.LastError.Contains("Không tìm thấy")
+                    ? $"Thiết bị (Serial: {serial}) chưa tồn tại trên server. Vui lòng đăng ký sản phẩm trước!"
+                    : ServerEngine.LastError ?? $"Thiết bị (Serial: {serial}) có trạng thái không khả dụng hoặc lỗi kết nối!";
+                ModernMessageBox.Show(this, errorMsg, "Chưa đăng ký sản phẩm", ModernMessageBox.MessageBoxType.Error);
             }
         }
 
-        private async Task<ProductInfo?> RequestProductStatusAsync(string serialNumber)
+        private async Task<ProductInfo?> RequestProductStatusAsync(string serialNumber, string model)
         {
-            return await ServerEngine.GetProductBySerialAsync(serialNumber);
+            return await ServerEngine.CheckProductStatusAsync(serialNumber, model);
         }
 
         private void SwitchToTab(string tabName)

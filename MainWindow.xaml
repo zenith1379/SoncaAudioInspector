@@ -97,6 +97,14 @@
                             </Button.Resources>
                         </Button>
 
+                        <Button Name="BtnAddProduct" Content="Add Product" Click="BtnAddProduct_Click" Background="#10B981" Foreground="White" BorderThickness="0" FontSize="12" Padding="12,4" Height="28" Cursor="Hand" Margin="6,0,0,0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="4"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+
                         <Button Name="BtnCheckStatus" Content="Check Status" Click="BtnCheckStatus_Click" Background="#3B82F6" Foreground="White" BorderThickness="0" FontSize="12" Padding="12,4" Height="28" Cursor="Hand" Margin="6,0,0,0">
                             <Button.Resources>
                                 <Style TargetType="Border">

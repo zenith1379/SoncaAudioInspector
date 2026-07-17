@@ -1080,6 +1080,15 @@ namespace SoncaAudioInspector
             BtnNoiseTest.IsEnabled = true;
 
             SetFinalVerdict(suitePassed);
+
+            if (ServerEngine.CurrentProduct != null)
+            {
+                bool uploaded = await ServerEngine.UploadAudioQaResultAsync(ServerEngine.CurrentProduct, suitePassed);
+                if (!uploaded)
+                {
+                    ModernMessageBox.Show(Window.GetWindow(this), ServerEngine.LastError ?? "Lỗi upload kết quả lên server.", "Lỗi server", ModernMessageBox.MessageBoxType.Error);
+                }
+            }
         }
 
         private string GetStandardsDirectory()

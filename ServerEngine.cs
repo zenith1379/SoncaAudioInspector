@@ -262,6 +262,56 @@ namespace SoncaAudioInspector
             }
         }
 
+        public static async Task<ProductInfo?> CheckProductStatusAsync(string serialNumber, string model)
+        {
+            if (string.IsNullOrWhiteSpace(serialNumber))
+            {
+                LastError = "Serial Number không được để trống.";
+                return null;
+            }
+
+            try
+            {
+                string endpoint = $"api/app/products/status?serialNumber={Uri.EscapeDataString(serialNumber.Trim())}&model={Uri.EscapeDataString(model?.Trim() ?? "")}";
+                JsonElement data = await SendAuthorizedForDataAsync(HttpMethod.Get, endpoint);
+                
+                ProductInfo? product = ProductInfo.FromApiData(data).FirstOrDefault();
+                CurrentProduct = product;
+                LastError = null;
+                return product;
+            }
+            catch (Exception ex)
+            {
+                LastError = ToUserMessage(ex);
+                return null;
+            }
+        }
+
+        public static async Task<ProductInfo?> AddProductAsync(string barcode, string serialNumber, string speakerModel)
+        {
+            if (string.IsNullOrWhiteSpace(barcode) || string.IsNullOrWhiteSpace(serialNumber) || string.IsNullOrWhiteSpace(speakerModel))
+            {
+                LastError = "Vui lòng nhập đầy đủ thông tin barcode, serial number và model.";
+                return null;
+            }
+
+            try
+            {
+                var body = new { barcode = barcode.Trim(), serialNumber = serialNumber.Trim(), speakerModel = speakerModel.Trim() };
+                JsonElement data = await SendAuthorizedForDataAsync(HttpMethod.Post, "api/app/products", body);
+                
+                ProductInfo? product = ProductInfo.FromApiData(data).FirstOrDefault();
+                CurrentProduct = product;
+                LastError = null;
+                return product;
+            }
+            catch (Exception ex)
+            {
+                LastError = ToUserMessage(ex);
+                return null;
+            }
+        }
+
         public static async Task<VisualQaUploadResult> UploadVisualQaImageAsync(
             ProductInfo product,
             byte[] imageBytes,
@@ -300,6 +350,33 @@ namespace SoncaAudioInspector
             VisualQaUploadResult result = ReadData<VisualQaUploadResult>(responseJson);
             WriteVisualQaUploadLog(product.Id, status, response.StatusCode, result.StorageProvider, result.Key, result.ImageUrl, null, null);
             return result;
+        }
+
+        public static async Task<bool> UploadAudioQaResultAsync(ProductInfo product, bool passed)
+        {
+            if (product is null || string.IsNullOrWhiteSpace(product.Id))
+            {
+                LastError = "Chưa có sản phẩm để lưu kết quả QA âm thanh.";
+                return false;
+            }
+
+            try
+            {
+                var body = new
+                {
+                    productId = product.Id,
+                    status = passed ? "PASS" : "FAIL",
+                    note = passed ? "Audio auto test passed" : "Audio auto test failed"
+                };
+
+                JsonElement data = await SendAuthorizedForDataAsync(HttpMethod.Post, "api/app/qa-audio", body);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LastError = ToUserMessage(ex);
+                return false;
+            }
         }
 
         public static HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string relativePath)
