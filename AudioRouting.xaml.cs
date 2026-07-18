@@ -116,6 +116,11 @@ namespace SoncaAudioInspector
             
             _testRunner.OnFrequencyResponsePoint += (freq, db) => Dispatcher.Invoke(() =>
             {
+                if (freq == 20)
+                {
+                    _freqs.Clear();
+                    _dbValues.Clear();
+                }
                 _freqs.Add(freq);
                 _dbValues.Add(db);
                 UpdateFreqResponseChart();
@@ -1072,7 +1077,7 @@ namespace SoncaAudioInspector
                 var playbackDevice = RadioUsbPlayback.IsChecked == true ? usbDev : btDev;
                 var recordingDevice = (ComboRecording.SelectedItem as DeviceItem)?.Device;
 
-                await _testRunner.RunTestAsync(playbackDevice, recordingDevice);
+                await _testRunner.RunTestAsync(playbackDevice, recordingDevice, runFeqThreeTimes: true);
 
                 // Wait for test to finish and set status
                 bool testPassed = _currentTestSuccess == true;

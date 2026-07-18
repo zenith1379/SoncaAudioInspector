@@ -16,7 +16,7 @@ namespace SoncaAudioInspector
         public static bool flagSaveFile = false; // TODO TEST
         public static bool flagGenerateSeperateSine = false; // TODO TEST
         public static bool flagSaveData = false; // // TODO TEST
-        public static bool flagExportImageSingleLine = true; // // TODO TEST
+        public static bool flagExportImageSingleLine = false; // // TODO TEST
 
         private MMDeviceEnumerator _enumerator;
         private WasapiOut _wasapiOut;
@@ -74,6 +74,7 @@ namespace SoncaAudioInspector
             bool forceSaveFiles = false)
         {
             Stop();
+            await Task.Delay(200);
 
             _recordedSamples.Clear();
 
@@ -167,10 +168,10 @@ namespace SoncaAudioInspector
             _wasapiCapture.StartRecording();
             _wasapiOut.Play();
 
-            // Wait for duration + 350ms driver warmup/stabilization time.
+            // Wait for duration + 600ms driver warmup/stabilization time.
             // This ensures that the cold-start delay of the soundcard driver on the first run
             // only affects the beginning of the recording, keeping the end of the buffer (used for analysis) stable.
-            await Task.Delay((int)(durationSeconds * 1000) + 350);
+            await Task.Delay((int)(durationSeconds * 1000) + 600);
 
             // Stop
             Stop();

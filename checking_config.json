@@ -32,76 +32,77 @@
         }
       }
     },
-    {
-      "model": "D'AURIS 500",
+	
+	{
+      "model": "ACOUSTIC 3",
       "testItems": {
         "InOut": {
-          "Description": "Test FEQ and THD for D'AURIS 500",
+          "Description": "Test FEQ and THD for ACOUSTIC 3",
           "Description 2": "Kiem tra tat ca cac ngo vao va ngo ra",
           "Devices": {
             "Input": {
               "USB Soundcard": "CS3600",
-              "Line in 3.5mm": "LINE IN",
-              "Bluetooth": "D'AURIS 500",
-              "MIC 1": "not setup yet MIC 1",
-			  "MIC 2": "not setup yet MIC 2",
-              "Optical In": "not setup yet Optical In"
+              "Line In 3.5mm": "LINE IN Fast",
+              "Bluetooth": "ACOUSTIC 3"
             },
             "Output": {
-              "Measurement Mic": "Umik-1",
+              "Measurement Mic": "KT USB",
               "Line out 3.5mm": "LINE OUT",
               "Type C Rec Out": "MI_LCD"
             }
           },
           "Tests": [
-            {
-              "id": "DA001",
-              "name": "Line In 3.5mm -> Physical Speaker (Umik-1)",
-              "Playback Out": "Line in 3.5mm",
-              "Recording In": "Measurement Mic"
-            },
-            {
-              "id": "DA002",
-              "name": "Bluetooth Playback -> Physical Speaker (Umik-1)",
-              "Playback Out": "Bluetooth",
-              "Recording In": "Measurement Mic"
-            },
-            {
-              "id": "DA003",
-              "name": "Bluetooth Playback -> Type C Recording",
-              "Playback Out": "Bluetooth",
-              "Recording In": "Type C Rec Out"
-            },
-            {
-              "id": "DA004",
-              "name": "USB Playback -> Physical Speaker (Umik-1)",
-              "Playback Out": "USB Soundcard",
-              "Recording In": "Measurement Mic"
-            },
-            {
-              "id": "DA004_HighVol",
-              "name": "USB Playback -> Physical Speaker (High Volume THD)",
-              "Playback Out": "USB Soundcard",
+			{
+              "id": "AC001",
+              "name": "Line In 3.5mm -> Physical Speaker",
+              "Playback Out": "Line In 3.5mm",
               "Recording In": "Measurement Mic",
-              "Playback Volume": 85,
-              "Recording Gain": 50,
-              "THD Limit": 1.5
+			  "Playback Volume": 100,
+              "Recording Gain": 130,
+              "THD Limit": 0.5
             },
             {
-              "id": "DA005",
+              "id": "AC002",
+              "name": "Line In 3.5mm -> Line out 3.5mm",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Line out 3.5mm",
+			  "Playback Volume": 100,
+              "Recording Gain": 130,
+              "THD Limit": 0.5
+            },
+			{
+              "id": "AC003",
+              "name": "Line In 3.5mm -> Type C Rec Out",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Type C Rec Out",
+			  "Playback Volume": 100,
+              "Recording Gain": 130,
+              "THD Limit": 0.5
+            },
+            {
+              "id": "AC004",
+              "name": "Bluetooth Playback -> Line out 3.5mm",
+              "Playback Out": "Bluetooth",
+              "Recording In": "Line out 3.5mm",
+              "Playback Volume": 50,
+              "Recording Gain": 130,
+              "THD Limit": 0.5
+            },
+            {
+              "id": "AC006",
               "name": "USB Playback -> Line out 3.5mm",
               "Playback Out": "USB Soundcard",
-              "Recording In": "Line out 3.5mm"
-            },
-            {
-              "id": "DA006",
-              "name": "USB Playback -> Type C Recording",
-              "Playback Out": "USB Soundcard",
-              "Recording In": "Type C Rec Out"
+              "Recording In": "Line out 3.5mm",
+              "Playback Volume": 50,
+              "Recording Gain": 130,
+              "THD Limit": 0.5
             }
           ]
         }
       }
     }
+	
+	
+	
   ]
 }
