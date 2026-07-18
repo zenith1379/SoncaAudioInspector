@@ -13,6 +13,12 @@ namespace SoncaAudioInspector
         {
             InitializeComponent();
             this.Loaded += SplashWindow_Loaded;
+
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            if (version != null)
+            {
+                LblVersion.Text = $"v{version.Major}.{version.Minor}.{version.Build}";
+            }
         }
 
         private async void SplashWindow_Loaded(object sender, RoutedEventArgs e)

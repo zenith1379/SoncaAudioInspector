@@ -149,6 +149,9 @@
                     </Button>
                 </Grid>
             </StackPanel>
+
+            <!-- App Version (Bottom Right) -->
+            <TextBlock Name="LblVersion" Text="v1.0.0" FontSize="11" Foreground="#71717A" HorizontalAlignment="Right" VerticalAlignment="Bottom" Grid.Row="2" Margin="0,0,0,-15"/>
         </Grid>
     </Border>
 </Window>
