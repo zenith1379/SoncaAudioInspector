@@ -111,9 +111,9 @@ namespace SoncaAudioInspector
             _visualAIView = new VisualAI();
 
             // Set logged in staff ID information dynamically
-            if (!string.IsNullOrEmpty(ServerEngine.StaffID))
+            if (!string.IsNullOrEmpty(ServerEngine.UserName))
             {
-                TxtStaffWelcome.Text = $"Xin chào, {ServerEngine.StaffID}";
+                TxtStaffWelcome.Text = $"Xin chào, {ServerEngine.UserName}";
             }
             else
             {
