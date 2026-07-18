@@ -134,11 +134,45 @@ namespace SoncaAudioInspector
             }
         }
 
+        private bool _isSyncingPassword = false;
+
         private void TxtPassword_PasswordChanged(object sender, RoutedEventArgs e)
         {
+            if (_isSyncingPassword) return;
             if (!string.IsNullOrWhiteSpace(TxtPassword.Password))
             {
                 LblErrorPassword.Visibility = Visibility.Collapsed;
+            }
+            _isSyncingPassword = true;
+            if (TxtPasswordVisible != null) TxtPasswordVisible.Text = TxtPassword.Password;
+            _isSyncingPassword = false;
+        }
+
+        private void TxtPasswordVisible_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            if (_isSyncingPassword) return;
+            if (!string.IsNullOrWhiteSpace(TxtPasswordVisible.Text))
+            {
+                LblErrorPassword.Visibility = Visibility.Collapsed;
+            }
+            _isSyncingPassword = true;
+            if (TxtPassword != null) TxtPassword.Password = TxtPasswordVisible.Text;
+            _isSyncingPassword = false;
+        }
+
+        private void BtnTogglePassword_Click(object sender, RoutedEventArgs e)
+        {
+            if (TxtPasswordVisible.Visibility == Visibility.Collapsed)
+            {
+                TxtPasswordVisible.Visibility = Visibility.Visible;
+                TxtPassword.Visibility = Visibility.Collapsed;
+                BtnTogglePassword.Content = "\uED1A"; // Hide icon
+            }
+            else
+            {
+                TxtPasswordVisible.Visibility = Visibility.Collapsed;
+                TxtPassword.Visibility = Visibility.Visible;
+                BtnTogglePassword.Content = "\uE7B3"; // Reveal icon
             }
         }
     }
