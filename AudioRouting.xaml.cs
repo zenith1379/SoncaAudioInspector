@@ -1084,7 +1084,11 @@ namespace SoncaAudioInspector
                 if (!testPassed)
                 {
                     suitePassed = false;
-                    SaveFailureScreenshots(test.Name ?? "UNKNOWN_STEP");
+                }
+
+                if (!testPassed || AudioEngine.flagExportImageAutoLine)
+                {
+                    SaveFailureScreenshots(test.Name ?? "UNKNOWN_STEP", forceAlways: AudioEngine.flagExportImageAutoLine);
                 }
 
                 test.Status = testPassed ? "PASS" : "FAIL";
@@ -1189,7 +1193,7 @@ namespace SoncaAudioInspector
             return System.IO.Path.Combine(GetStandardsDirectory(), $"standard_{key}.csv");
         }
 
-        private void SaveFailureScreenshots(string stepName)
+        private void SaveFailureScreenshots(string stepName, bool forceAlways = false)
         {
             string serialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "UNKNOWN_SERIAL";
             if (string.IsNullOrEmpty(serialNumber))
@@ -1224,15 +1228,16 @@ namespace SoncaAudioInspector
 
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            // Check for FEQ failure
-            if (!_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
+            // Check for FEQ failure or force always
+            if (forceAlways || !_testRunner.BassPassed || !_testRunner.MidPassed || !_testRunner.TreblePassed)
             {
-                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_FEQ_{stepName}.png";
+                string label = (forceAlways && _testRunner.BassPassed && _testRunner.MidPassed && _testRunner.TreblePassed) ? "AUTO" : "FEQ";
+                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_{label}_{stepName}.png";
                 string fullPath = System.IO.Path.Combine(failDataPath, filename);
                 try
                 {
                     PlotFreqResponse.Plot.SavePng(fullPath, 800, 450);
-                    AppendLog("Export", $"Saved FEQ failure screenshot: {filename}");
+                    AppendLog("Export", $"Saved FEQ screenshot: {filename}");
                 }
                 catch (Exception ex)
                 {
@@ -1240,15 +1245,16 @@ namespace SoncaAudioInspector
                 }
             }
 
-            // Check for THD failure
-            if (!_testRunner.ThdPassed)
+            // Check for THD failure or force always
+            if (forceAlways || !_testRunner.ThdPassed)
             {
-                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_THD.png";
+                string label = (forceAlways && _testRunner.ThdPassed) ? "AUTO_THD" : "THD";
+                string filename = $"{serialNumber}_{selectedModel}_{timestamp}_{label}_{stepName}.png";
                 string fullPath = System.IO.Path.Combine(failDataPath, filename);
                 try
                 {
                     PlotThdFft.Plot.SavePng(fullPath, 800, 450);
-                    AppendLog("Export", $"Saved THD failure screenshot: {filename}");
+                    AppendLog("Export", $"Saved THD screenshot: {filename}");
                 }
                 catch (Exception ex)
                 {
