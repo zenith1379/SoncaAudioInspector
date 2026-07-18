@@ -259,6 +259,7 @@ namespace SoncaAudioInspector
                     
                     // Optionally, update the visual AI view product if the user adds it while testing
                     _visualAIView.SetCurrentProduct(product);
+                    _audioRoutingView.SetCurrentProduct(product);
                 }
                 else
                 {
@@ -287,6 +288,7 @@ namespace SoncaAudioInspector
             if (passed)
             {
                 _visualAIView.SetCurrentProduct(product);
+                _audioRoutingView.SetCurrentProduct(product);
                 string details = $"Thiết bị (Serial: {serial}) đã được kiểm tra trạng thái thành công!";
                 if (!string.IsNullOrWhiteSpace(product?.Model))
                 {
@@ -306,6 +308,7 @@ namespace SoncaAudioInspector
             else
             {
                 _visualAIView.SetCurrentProduct(null);
+                _audioRoutingView.SetCurrentProduct(null);
                 string errorMsg = ServerEngine.LastError != null && ServerEngine.LastError.Contains("Không tìm thấy")
                     ? $"Thiết bị (Serial: {serial}) chưa tồn tại trên server. Vui lòng đăng ký sản phẩm trước!"
                     : ServerEngine.LastError ?? $"Thiết bị (Serial: {serial}) có trạng thái không khả dụng hoặc lỗi kết nối!";

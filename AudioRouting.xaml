@@ -233,8 +233,23 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- START AUTO TEST Button -->
-                    <Button Name="BtnStartAutoTest" Grid.Row="0" Content="START AUTO TEST" Click="BtnStartAutoTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,0,12"/>
+                    <StackPanel Grid.Row="0" Margin="0,0,0,12">
+                        <!-- START AUTO TEST & SEND SERVER Controls -->
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Name="BtnStartAutoTest" Grid.Column="0" Content="START AUTO TEST" Click="BtnStartAutoTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,8,0"/>
+                            <CheckBox Name="ChkSendToServer" Grid.Column="1" Content="Gửi Server" IsChecked="True" Foreground="#A1A1AA" FontSize="12" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <!-- Current Product Info -->
+                        <StackPanel Name="PanelProductInfo" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,0,0,4">
+                            <TextBlock Text="SẢN PHẨM: " FontSize="12" FontWeight="Bold" Foreground="#A1A1AA" VerticalAlignment="Center"/>
+                            <TextBlock Name="TxtProductSerial" Text="CHƯA CÓ SERIAL (N/A)" FontSize="13" FontWeight="Bold" Foreground="#EF4444" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
 
                     <!-- Auto Test Cases List -->
                     <Border Name="BorderAutoTestList" Grid.Row="1" Background="#121214" BorderBrush="#27272A" BorderThickness="2" CornerRadius="8" Padding="15">

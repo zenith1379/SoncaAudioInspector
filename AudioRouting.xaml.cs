@@ -184,6 +184,21 @@ namespace SoncaAudioInspector
             TxtFreqTolerance.TextChanged += (s, e) => CheckAndLoadStandardDevice();
             TxtThdLimit.TextChanged += (s, e) => CheckAndLoadStandardDevice();
             CheckAndLoadStandardDevice();
+            SetCurrentProduct(ServerEngine.CurrentProduct);
+        }
+
+        public void SetCurrentProduct(ProductInfo? product)
+        {
+            if (product != null && !string.IsNullOrEmpty(product.SerialNumber))
+            {
+                TxtProductSerial.Text = product.SerialNumber;
+                TxtProductSerial.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(245, 158, 11)); // Amber (#F59E0B)
+            }
+            else
+            {
+                TxtProductSerial.Text = "CHƯA CÓ SERIAL (N/A)";
+                TxtProductSerial.Foreground = new WpfSolidColorBrush(WpfColor.FromRgb(239, 68, 68)); // Red (#EF4444)
+            }
         }
 
         private void LoadConfig()
@@ -1081,7 +1096,7 @@ namespace SoncaAudioInspector
 
             SetFinalVerdict(suitePassed);
 
-            if (ServerEngine.CurrentProduct != null)
+            if (ChkSendToServer.IsChecked == true && ServerEngine.CurrentProduct != null)
             {
                 bool uploaded = await ServerEngine.UploadAudioQaResultAsync(ServerEngine.CurrentProduct, suitePassed);
                 if (!uploaded)
