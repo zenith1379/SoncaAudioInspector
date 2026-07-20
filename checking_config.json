@@ -100,6 +100,112 @@
           ]
         }
       }
+    },
+	
+	
+	
+	{
+      "model": "D'AURIS 200",
+      "testItems": {
+        "InOut": {
+          "Description": "Test FEQ and THD for D'AURIS 200",
+          "Description 2": "Kiem tra tat ca cac ngo vao va ngo ra",
+          "Devices": {
+            "Input": {
+              "USB Soundcard": "CS3600",
+              "Line In 3.5mm": "LINE IN Fast",
+              "Bluetooth": "D'AURIS 200"
+            },
+            "Output": {
+              "Measurement Mic": "KT USB",
+              "Line out 3.5mm": "LINE OUT",
+              "Type C Rec Out": "MI_LCD"
+            }
+          },
+          "Tests": [
+			{
+              "id": "AC001",
+              "name": "Line In 3.5mm -> Physical Speaker",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Measurement Mic",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.7
+            },
+            {
+              "id": "AC002",
+              "name": "Line In 3.5mm -> Line out 3.5mm",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Line out 3.5mm",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.5
+            },
+			{
+              "id": "AC003",
+              "name": "Line In 3.5mm -> Type C Rec Out",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Type C Rec Out",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.5
+            }
+          ]
+        }
+      }
+    },
+	
+	
+	
+	{
+      "model": "D'AURIS 300",
+      "testItems": {
+        "InOut": {
+          "Description": "Test FEQ and THD for D'AURIS 300",
+          "Description 2": "Kiem tra tat ca cac ngo vao va ngo ra",
+          "Devices": {
+            "Input": {
+              "USB Soundcard": "CS3600",
+              "Line In 3.5mm": "LINE IN Fast",
+              "Bluetooth": "D'AURIS 300"
+            },
+            "Output": {
+              "Measurement Mic": "KT USB",
+              "Line out 3.5mm": "LINE OUT",
+              "Type C Rec Out": "MI_LCD"
+            }
+          },
+          "Tests": [
+			{
+              "id": "AC001",
+              "name": "Line In 3.5mm -> Physical Speaker",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Measurement Mic",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.7
+            },
+            {
+              "id": "AC002",
+              "name": "Line In 3.5mm -> Line out 3.5mm",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Line out 3.5mm",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.5
+            },
+			{
+              "id": "AC003",
+              "name": "Line In 3.5mm -> Type C Rec Out",
+              "Playback Out": "Line In 3.5mm",
+              "Recording In": "Type C Rec Out",
+			  "Playback Volume": 100,
+              "Recording Gain": 200,
+              "THD Limit": 0.5
+            }
+          ]
+        }
+      }
     }
 	
 	

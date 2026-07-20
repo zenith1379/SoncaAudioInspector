@@ -26,6 +26,7 @@ namespace SoncaAudioInspector
         private InOutConfig _activeInOutConfig;
         private List<AutoTestCaseItem> _autoTestCases = new List<AutoTestCaseItem>();
         private bool _isExecutingAutoSuite = false;
+        private string _autoTestSessionFolder = null;
         private AutoTestCaseItem _currentRunningTestCase = null;
         private bool? _currentTestSuccess = null;
         private Dictionary<double, double> _standardCurve = null;
@@ -243,7 +244,8 @@ namespace SoncaAudioInspector
                     RecordingGain = SliderRecordingGain.Value,
                     FreqTolerance = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0),
                     ThdLimit = ParseDoubleSafe(TxtThdLimit.Text, 0.5),
-                    UseUsbPlayback = RadioUsbPlayback.IsChecked == true
+                    UseUsbPlayback = RadioUsbPlayback.IsChecked == true,
+                    LastSerialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? ""
                 };
                 string json = JsonSerializer.Serialize(config);
                 string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "routing_value.json");
@@ -551,7 +553,7 @@ namespace SoncaAudioInspector
             line2.LineStyle.Pattern = LinePattern.Dashed;
 
             // 1. Draw Bass band (20Hz - 250Hz)
-            var spanBass = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(20), Math.Log10(250));
+            var spanBass = PlotFreqResponse.Plot.Add.HorizontalSpan(Math.Log10(20), Math.Log10(250));
             spanBass.LineStyle.Width = 0;
             if (_testRunner != null && !_testRunner.BassPassed)
             {
@@ -563,7 +565,7 @@ namespace SoncaAudioInspector
             }
 
             // 2. Draw Mid band (250Hz - 4kHz)
-            var spanMid = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(250), Math.Log10(4000));
+            var spanMid = PlotFreqResponse.Plot.Add.HorizontalSpan(Math.Log10(250), Math.Log10(4000));
             spanMid.LineStyle.Width = 0;
             if (_testRunner != null && !_testRunner.MidPassed)
             {
@@ -575,7 +577,7 @@ namespace SoncaAudioInspector
             }
 
             // 3. Draw Treble band (4kHz - 20kHz)
-            var spanTreble = PlotFreqResponse.Plot.Add.VerticalSpan(Math.Log10(4000), Math.Log10(20000));
+            var spanTreble = PlotFreqResponse.Plot.Add.HorizontalSpan(Math.Log10(4000), Math.Log10(20000));
             spanTreble.LineStyle.Width = 0;
             if (_testRunner != null && !_testRunner.TreblePassed)
             {
@@ -884,6 +886,7 @@ namespace SoncaAudioInspector
         private void ComboDevice_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (TxtFreqTolerance == null || TxtThdLimit == null) return;
+            if (_isExecutingAutoSuite) return;
 
             var usbItem = ComboPlayback.SelectedItem as DeviceItem;
             var btItem = ComboBluetooth.SelectedItem as DeviceItem;
@@ -913,6 +916,32 @@ namespace SoncaAudioInspector
         private async void BtnStartAutoTest_Click(object sender, RoutedEventArgs e)
         {
             if (_activeInOutConfig == null || _autoTestCases.Count == 0) return;
+
+            SaveConfig();
+
+            // Create a specific folder for this Auto Test session: [Serial Number]_timestamp
+            string serialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "UNKNOWN_SERIAL";
+            if (string.IsNullOrEmpty(serialNumber))
+            {
+                serialNumber = "UNKNOWN_SERIAL";
+            }
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string sessionFolderName = $"{serialNumber}_{timestamp}";
+            string failDataPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
+            _autoTestSessionFolder = System.IO.Path.Combine(failDataPath, sessionFolderName);
+
+            try
+            {
+                if (!System.IO.Directory.Exists(_autoTestSessionFolder))
+                {
+                    System.IO.Directory.CreateDirectory(_autoTestSessionFolder);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog("Error", $"Could not create auto test session folder: {ex.Message}");
+                _autoTestSessionFolder = null;
+            }
 
             BtnStart.IsEnabled = false;
             BtnStartAutoTest.IsEnabled = false;
@@ -1096,6 +1125,7 @@ namespace SoncaAudioInspector
             }
 
             _isExecutingAutoSuite = false;
+            _autoTestSessionFolder = null;
             _currentRunningTestCase = null;
 
             BtnStart.IsEnabled = true;
@@ -1213,16 +1243,21 @@ namespace SoncaAudioInspector
             }
             stepName = stepName.Replace(' ', '_');
 
-            string failDataPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
-            if (!System.IO.Directory.Exists(failDataPath))
+            string targetDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fail data");
+            if (_isExecutingAutoSuite && !string.IsNullOrEmpty(_autoTestSessionFolder))
+            {
+                targetDir = _autoTestSessionFolder;
+            }
+
+            if (!System.IO.Directory.Exists(targetDir))
             {
                 try
                 {
-                    System.IO.Directory.CreateDirectory(failDataPath);
+                    System.IO.Directory.CreateDirectory(targetDir);
                 }
                 catch (Exception ex)
                 {
-                    AppendLog("Error", $"Could not create 'fail data' folder: {ex.Message}");
+                    AppendLog("Error", $"Could not create folder: {ex.Message}");
                 }
             }
 
@@ -1233,7 +1268,7 @@ namespace SoncaAudioInspector
             {
                 string label = (forceAlways && _testRunner.BassPassed && _testRunner.MidPassed && _testRunner.TreblePassed) ? "AUTO" : "FEQ";
                 string filename = $"{serialNumber}_{selectedModel}_{timestamp}_{label}_{stepName}.png";
-                string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                string fullPath = System.IO.Path.Combine(targetDir, filename);
                 try
                 {
                     PlotFreqResponse.Plot.SavePng(fullPath, 800, 450);
@@ -1250,7 +1285,7 @@ namespace SoncaAudioInspector
             {
                 string label = (forceAlways && _testRunner.ThdPassed) ? "AUTO_THD" : "THD";
                 string filename = $"{serialNumber}_{selectedModel}_{timestamp}_{label}_{stepName}.png";
-                string fullPath = System.IO.Path.Combine(failDataPath, filename);
+                string fullPath = System.IO.Path.Combine(targetDir, filename);
                 try
                 {
                     PlotThdFft.Plot.SavePng(fullPath, 800, 450);

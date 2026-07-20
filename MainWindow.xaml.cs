@@ -71,6 +71,7 @@ namespace SoncaAudioInspector
         public double FreqTolerance { get; set; } = 3.0;
         public double ThdLimit { get; set; } = 0.5;
         public bool UseUsbPlayback { get; set; } = true;
+        public string LastSerialNumber { get; set; } = "";
     }
 
     public class DeviceItem
@@ -125,7 +126,26 @@ namespace SoncaAudioInspector
 
             // Load configurations for models selection
             LoadCheckingConfig();
+            LoadLastSerialNumber();
             //_ = LoadServerModelsAsync();
+        }
+
+        private void LoadLastSerialNumber()
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "routing_value.json");
+                if (File.Exists(path))
+                {
+                    string json = File.ReadAllText(path);
+                    var config = JsonSerializer.Deserialize<AppConfig>(json);
+                    if (config != null && !string.IsNullOrEmpty(config.LastSerialNumber))
+                    {
+                        TxtSerialNumber.Text = config.LastSerialNumber;
+                    }
+                }
+            }
+            catch { }
         }
 
         private void LoadCheckingConfig()
