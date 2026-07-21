@@ -284,9 +284,9 @@ namespace SoncaAudioInspector
             if (captured is not null)
             {
                 ServerEngine.WriteVisualQaClientLog("capture-upload-start");
-                StatusLabel.Text = $"Đang upload ảnh capture PENDING -> {ServerEngine.CurrentApiBaseUrl}";
+                StatusLabel.Text = $"Đang upload ảnh capture PENDING_QA -> {ServerEngine.CurrentApiBaseUrl}";
                 StatusLabel.Foreground = Brushes.Orange;
-                await UploadVisualQaSnapshotAsync(captured, "PENDING", "Visual AI capture");
+                await UploadVisualQaSnapshotAsync(captured, "PENDING_QA", "Visual AI capture");
             }
         }
 
