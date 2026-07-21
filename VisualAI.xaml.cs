@@ -17,8 +17,12 @@ namespace SoncaAudioInspector
         private YoloDetector? _detector;
         private VideoCapture? _capture;
         private Thread? _cameraThread;
-        private bool _isRunning;
-        private readonly object _frameLock = new object();
+        private volatile bool _isRunning;
+        private readonly object _frameLock = new();
+        private readonly object _detectorLock = new();
+        private int _modelLoadVersion;
+        private int _frameUpdatePending;
+        private bool _isUnloaded;
         private Mat? _latestFrame;
         private Mat? _importedImage;
         private ProductInfo? _currentProduct;
@@ -45,7 +49,6 @@ namespace SoncaAudioInspector
             string[] candidates =
             {
                 Environment.GetEnvironmentVariable("SONCA_AI_MODEL") ?? "",
-                @"D:\PROJECT\Iphone_detect_YOLO26_plan\yolo26n.onnx",
                 Path.Combine(AppContext.BaseDirectory, "models", "visual-ai.onnx")
             };
 
@@ -63,43 +66,51 @@ namespace SoncaAudioInspector
             StatusLabel.Foreground = Brushes.Orange;
         }
 
-        private void InitializeDetector(string path)
+        private async void InitializeDetector(string path)
         {
+            int loadVersion = Interlocked.Increment(ref _modelLoadVersion);
             ModelProgressBar.Visibility = Visibility.Visible;
+            DetectBtn.IsEnabled = false;
             StatusLabel.Text = "Đang tải model...";
             StatusLabel.Foreground = Brushes.Orange;
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            YoloDetector? detector = null;
+            try
             {
-                YoloDetector? detector = null;
-                Exception? error = null;
-                try
+                detector = await Task.Run(() => new YoloDetector(path));
+                if (_isUnloaded || loadVersion != Volatile.Read(ref _modelLoadVersion))
                 {
-                    detector = new YoloDetector(path);
-                }
-                catch (Exception ex)
-                {
-                    error = ex;
+                    return;
                 }
 
-                Dispatcher.Invoke(() =>
+                lock (_detectorLock)
                 {
-                    ModelProgressBar.Visibility = Visibility.Collapsed;
-                    if (error is not null)
-                    {
-                        StatusLabel.Text = "Model lỗi";
-                        StatusLabel.Foreground = Brushes.OrangeRed;
-                        ModernMessageBox.Show(System.Windows.Window.GetWindow(this), $"Không tải được model AI: {error.Message}", "AI Model", ModernMessageBox.MessageBoxType.Error);
-                        detector?.Dispose();
-                        return;
-                    }
-
                     _detector?.Dispose();
                     _detector = detector;
-                    StatusLabel.Text = "Model sẵn sàng";
-                    StatusLabel.Foreground = Brushes.LightGreen;
-                });
-            });
+                    detector = null;
+                }
+
+                StatusLabel.Text = "Model sẵn sàng";
+                StatusLabel.Foreground = Brushes.LightGreen;
+            }
+            catch (Exception ex)
+            {
+                if (!_isUnloaded && loadVersion == Volatile.Read(ref _modelLoadVersion))
+                {
+                    StatusLabel.Text = "Model lỗi";
+                    StatusLabel.Foreground = Brushes.OrangeRed;
+                    ModernMessageBox.Show(System.Windows.Window.GetWindow(this), $"Không tải được model AI: {ex.Message}", "AI Model", ModernMessageBox.MessageBoxType.Error);
+                }
+            }
+            finally
+            {
+                detector?.Dispose();
+                if (!_isUnloaded && loadVersion == Volatile.Read(ref _modelLoadVersion))
+                {
+                    ModelProgressBar.Visibility = Visibility.Collapsed;
+                    DetectBtn.IsEnabled = _detector is not null;
+                }
+            }
         }
 
         private void SourceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -160,11 +171,26 @@ namespace SoncaAudioInspector
                             _latestFrame = frame.Clone();
                         }
 
-                        Dispatcher.Invoke(() =>
+                        if (Interlocked.Exchange(ref _frameUpdatePending, 1) == 0)
                         {
-                            CameraFeedImage.Source = WriteableBitmapConverter.ToWriteableBitmap(frame);
-                            NoCameraText.Visibility = Visibility.Collapsed;
-                        });
+                            var bitmap = WriteableBitmapConverter.ToWriteableBitmap(frame);
+                            bitmap.Freeze();
+                            _ = Dispatcher.BeginInvoke(() =>
+                            {
+                                try
+                                {
+                                    if (_isRunning)
+                                    {
+                                        CameraFeedImage.Source = bitmap;
+                                        NoCameraText.Visibility = Visibility.Collapsed;
+                                    }
+                                }
+                                finally
+                                {
+                                    Volatile.Write(ref _frameUpdatePending, 0);
+                                }
+                            });
+                        }
                     }
 
                     frame.Dispose();
@@ -182,7 +208,7 @@ namespace SoncaAudioInspector
         private void StopCamera()
         {
             _isRunning = false;
-            _cameraThread?.Join(500);
+            _cameraThread?.Join(1000);
             _cameraThread = null;
             _capture?.Dispose();
             _capture = null;
@@ -267,11 +293,14 @@ namespace SoncaAudioInspector
         private void DetectButton_Click(object sender, RoutedEventArgs e)
         {
             ServerEngine.WriteVisualQaClientLog("detect-click");
-            if (_detector is null)
+            lock (_detectorLock)
             {
-                ServerEngine.WriteVisualQaClientLog("detect-no-model");
-                ModernMessageBox.Show(System.Windows.Window.GetWindow(this), "Vui lòng chọn model ONNX trước.", "AI", ModernMessageBox.MessageBoxType.Warning);
-                return;
+                if (_detector is null)
+                {
+                    ServerEngine.WriteVisualQaClientLog("detect-no-model");
+                    ModernMessageBox.Show(System.Windows.Window.GetWindow(this), "Vui lòng chọn model ONNX trước.", "AI", ModernMessageBox.MessageBoxType.Warning);
+                    return;
+                }
             }
 
             Mat? frame = null;
@@ -299,9 +328,18 @@ namespace SoncaAudioInspector
             {
                 try
                 {
-                    var result = _detector.Predict(frame, 0.25f, "ok,pass,good");
                     using Mat annotated = frame.Clone();
-                    _detector.DrawDetections(annotated, result.Detections, "ok,pass,good");
+                    DetectionResult result;
+                    lock (_detectorLock)
+                    {
+                        if (_detector is null)
+                        {
+                            throw new InvalidOperationException("Model AI không còn khả dụng.");
+                        }
+
+                        result = _detector.Predict(frame, 0.25f, "ok,pass,good");
+                        _detector.DrawDetections(annotated, result.Detections, "ok,pass,good");
+                    }
                     string status = result.IsAnomaly == true ? "FAIL" : "PASS";
                     string note = $"Visual AI detect: {status}; detections={result.Detections.Count}; elapsedMs={result.ElapsedMs:F1}";
 
@@ -394,11 +432,22 @@ namespace SoncaAudioInspector
 
         private void VisualAI_Unloaded(object sender, RoutedEventArgs e)
         {
+            _isUnloaded = true;
+            Interlocked.Increment(ref _modelLoadVersion);
             StopCamera();
-            _latestFrame?.Dispose();
-            _importedImage?.Dispose();
-            _detector?.Dispose();
+            lock (_frameLock)
+            {
+                _latestFrame?.Dispose();
+                _latestFrame = null;
+                _importedImage?.Dispose();
+                _importedImage = null;
+            }
+
+            lock (_detectorLock)
+            {
+                _detector?.Dispose();
+                _detector = null;
+            }
         }
     }
 }
-

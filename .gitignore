@@ -15,6 +15,7 @@
 # Build Results
 [Dd]ebug/
 [Rr]elease/
+[Aa]rtifacts/
 x64/
 x86/
 

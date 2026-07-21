@@ -49,6 +49,14 @@
                                 <TextBlock Text="ASIO / WASAPI Ready" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
+                        <Button Name="BtnMinimizeApp" Click="BtnMinimizeApp_Click" Width="30" Height="30" Background="#27272A" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" Margin="0,0,10,0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="15"/>
+                                </Style>
+                            </Button.Resources>
+                            —
+                        </Button>
                         <Button Name="BtnToggleFullscreen" Click="BtnToggleFullscreen_Click" Width="30" Height="30" Background="#27272A" BorderThickness="0" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" Margin="0,0,10,0">
                             <Button.Resources>
                                 <Style TargetType="Border">
