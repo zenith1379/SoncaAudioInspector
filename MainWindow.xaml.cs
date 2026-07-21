@@ -298,9 +298,13 @@ namespace SoncaAudioInspector
                 {
                     details += $"\nMã sản phẩm: {product.ProductCode}";
                 }
-                if (!string.IsNullOrWhiteSpace(product?.Status))
+                if (!string.IsNullOrWhiteSpace(product?.QaStatus))
                 {
-                    details += $"\nTrạng thái: {product.Status}";
+                    details += $"\nTrạng thái QA: {product.QaStatus}";
+                }
+                if (!string.IsNullOrWhiteSpace(product?.QcStatus))
+                {
+                    details += $"\nTrạng thái QC: {product.QcStatus}";
                 }
 
                 ModernMessageBox.Show(this, details, "Kết quả trạng thái", ModernMessageBox.MessageBoxType.Info);

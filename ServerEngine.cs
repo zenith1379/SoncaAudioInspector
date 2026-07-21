@@ -1128,6 +1128,8 @@ namespace SoncaAudioInspector
         public string? Model { get; set; }
         public string? Name { get; set; }
         public string? Status { get; set; }
+        public string? QaStatus { get; set; }
+        public string? QcStatus { get; set; }
         public JsonElement Raw { get; set; }
 
         public string DisplayName =>
@@ -1170,6 +1172,8 @@ namespace SoncaAudioInspector
                 Model = GetString(item, "model") ?? GetString(item, "modelName") ?? GetString(item, "speakerModel"),
                 Name = GetString(item, "name") ?? GetString(item, "productName"),
                 Status = GetString(item, "status"),
+                QaStatus = GetString(item, "qaStatus"),
+                QcStatus = GetString(item, "qcStatus"),
                 Raw = item.Clone()
             };
         }
