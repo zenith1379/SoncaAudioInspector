@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using OpenCvSharp;
@@ -43,7 +42,10 @@ namespace AiVisualization
             }
 
             // Initialize ONNX Session
-            var options = new SessionOptions();
+            using var options = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+            };
             _session = new InferenceSession(modelPath, options);
 
             // Get input name
@@ -119,16 +121,25 @@ namespace AiVisualization
             using var rgb = new Mat();
             Cv2.CvtColor(resized, rgb, ColorConversionCodes.BGR2RGB);
 
-            // Create CHW float array normalized to [0, 1]
-            float[] inputData = new float[1 * 3 * _modelHeight * _modelWidth];
-            for (int y = 0; y < _modelHeight; y++)
+            // Create CHW float array normalized to [0, 1] without a per-pixel
+            // OpenCvSharp interop call.
+            int planeSize = _modelHeight * _modelWidth;
+            float[] inputData = GC.AllocateUninitializedArray<float>(3 * planeSize);
+            unsafe
             {
-                for (int x = 0; x < _modelWidth; x++)
+                byte* basePointer = (byte*)rgb.DataPointer;
+                for (int y = 0; y < _modelHeight; y++)
                 {
-                    Vec3b pixel = rgb.At<Vec3b>(y, x);
-                    inputData[0 * _modelHeight * _modelWidth + y * _modelWidth + x] = pixel.Item0 / 255.0f; // Red
-                    inputData[1 * _modelHeight * _modelWidth + y * _modelWidth + x] = pixel.Item1 / 255.0f; // Green
-                    inputData[2 * _modelHeight * _modelWidth + y * _modelWidth + x] = pixel.Item2 / 255.0f; // Blue
+                    byte* row = basePointer + (y * rgb.Step());
+                    int rowOffset = y * _modelWidth;
+                    for (int x = 0; x < _modelWidth; x++)
+                    {
+                        int pixelOffset = x * 3;
+                        int tensorOffset = rowOffset + x;
+                        inputData[tensorOffset] = row[pixelOffset] / 255.0f;
+                        inputData[planeSize + tensorOffset] = row[pixelOffset + 1] / 255.0f;
+                        inputData[(2 * planeSize) + tensorOffset] = row[pixelOffset + 2] / 255.0f;
+                    }
                 }
             }
 
@@ -142,13 +153,19 @@ namespace AiVisualization
             using var results = _session.Run(inputs);
             var outputTensor = results.First().AsTensor<float>();
 
-            // Output shape is [1, 300, 6]
+            if (outputTensor.Dimensions.Length != 3 || outputTensor.Dimensions[2] < 6)
+            {
+                throw new InvalidDataException($"Unsupported model output shape: [{string.Join(", ", outputTensor.Dimensions.ToArray())}]");
+            }
+
+            // Expected output shape: [1, detectionCount, 6]
             // Each row: [x1, y1, x2, y2, confidence, class_id]
             var detections = new List<YoloDetection>();
             float scaleX = origWidth / (float)_modelWidth;
             float scaleY = origHeight / (float)_modelHeight;
 
-            for (int i = 0; i < 300; i++)
+            int detectionCount = outputTensor.Dimensions[1];
+            for (int i = 0; i < detectionCount; i++)
             {
                 float x1 = outputTensor[0, i, 0];
                 float y1 = outputTensor[0, i, 1];
@@ -168,12 +185,19 @@ namespace AiVisualization
                     int rx2 = (int)Math.Min(origWidth, Math.Round(x2 * scaleX));
                     int ry2 = (int)Math.Min(origHeight, Math.Round(y2 * scaleY));
 
+                    int boxWidth = rx2 - rx1;
+                    int boxHeight = ry2 - ry1;
+                    if (boxWidth <= 0 || boxHeight <= 0)
+                    {
+                        continue;
+                    }
+
                     detections.Add(new YoloDetection
                     {
                         ClassId = classId,
                         ClassName = className,
                         Confidence = confidence,
-                        Box = new Rect(rx1, ry1, rx2 - rx1, ry2 - ry1)
+                        Box = new Rect(rx1, ry1, boxWidth, boxHeight)
                     });
                 }
             }
@@ -184,13 +208,13 @@ namespace AiVisualization
             // Determine anomaly state
             // Split pass classes
             var passClasses = passClassesStr.Split(',')
-                .Select(s => s.Trim().ToLower())
+                .Select(s => s.Trim())
                 .Where(s => !string.IsNullOrEmpty(s))
-                .ToHashSet();
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // An anomaly exists if we have detections whose class name is NOT in passClasses
             var failDetections = detections
-                .Where(d => !passClasses.Contains(d.ClassName.ToLower()))
+                .Where(d => !passClasses.Contains(d.ClassName))
                 .ToList();
 
             bool isAnomaly = failDetections.Count > 0;
@@ -208,13 +232,13 @@ namespace AiVisualization
         public void DrawDetections(Mat image, List<YoloDetection> detections, string passClassesStr = "ok,pass,good")
         {
             var passClasses = passClassesStr.Split(',')
-                .Select(s => s.Trim().ToLower())
+                .Select(s => s.Trim())
                 .Where(s => !string.IsNullOrEmpty(s))
-                .ToHashSet();
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var det in detections)
             {
-                bool isPass = passClasses.Contains(det.ClassName.ToLower());
+                bool isPass = passClasses.Contains(det.ClassName);
                 Scalar color = isPass ? Scalar.FromRgb(24, 128, 56) : Scalar.FromRgb(217, 48, 37); // Green for OK, Red for Fail
 
                 // Draw bounding box

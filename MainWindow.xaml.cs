@@ -390,6 +390,11 @@ namespace SoncaAudioInspector
             }
         }
 
+        private void BtnMinimizeApp_Click(object sender, RoutedEventArgs e)
+        {
+            this.WindowState = WindowState.Minimized;
+        }
+
         private void BtnCloseApp_Click(object sender, RoutedEventArgs e)
         {
             this.Close();

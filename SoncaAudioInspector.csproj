@@ -6,25 +6,66 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Platforms>AnyCPU;x64</Platforms>
+    <Platforms>AnyCPU;x64;x86</Platforms>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <PlatformTarget Condition="'$(RuntimeIdentifier)' == 'win-x86'">x86</PlatformTarget>
+    <PlatformTarget Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' != 'win-x86'">x64</PlatformTarget>
+    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Remove="CheckApp\**\*.cs" />
+    <Compile Remove="VisualAI.x86.xaml.cs" />
     <None Remove="CheckApp\**\*" />
     <Page Remove="CheckApp\**\*.xaml" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x86'">
+    <Compile Remove="VisualAI.xaml.cs" />
+    <Compile Remove="AiVisualization\YoloDetector.cs" />
+    <Compile Include="VisualAI.x86.xaml.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="Microsoft.Win32.Registry.AccessControl" Version="9.0.6" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" Condition="'$(RuntimeIdentifier)' != 'win-x86'" />
     <PackageReference Include="NAudio" Version="2.3.0" />
-    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260602" />
-    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260602" />
-    <PackageReference Include="OpenCvSharp4.WpfExtensions" Version="4.13.0.20260602" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260602" Condition="'$(RuntimeIdentifier)' != 'win-x86'" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260602" Condition="'$(RuntimeIdentifier)' != 'win-x86'" />
+    <PackageReference Include="OpenCvSharp4.WpfExtensions" Version="4.13.0.20260602" Condition="'$(RuntimeIdentifier)' != 'win-x86'" />
     <PackageReference Include="ScottPlot.WPF" Version="5.1.58" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="checking_config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <Content Include="models\visual-ai.onnx" Condition="'$(RuntimeIdentifier)' != 'win-x86'">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>models\visual-ai.onnx</TargetPath>
+    </Content>
+    <Content Include="PortableReadme.txt" Condition="'$(RuntimeIdentifier)' != 'win-x86'">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <Content Include="PortableReadme-x86.txt" Condition="'$(RuntimeIdentifier)' == 'win-x86'">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <TargetPath>PortableReadme.txt</TargetPath>
+    </Content>
+    <Content Include="FastTrackPro_x64 Driver.rar" Condition="'$(RuntimeIdentifier)' != 'win-x86'">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>drivers\FastTrackPro_x64 Driver.rar</TargetPath>
+    </Content>
   </ItemGroup>
 
 </Project>
