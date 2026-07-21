@@ -650,7 +650,7 @@ namespace SoncaAudioInspector
                 for (int i = 0; i < _freqs.Count; i++)
                 {
                     double freq = _freqs[i];
-                    if (freq >= 100 && freq <= 15000)
+                    if (freq >= 50 && freq <= 15000)
                     {
                         double targetDb = 0;
                         if (_standardCurve != null && _standardCurve.ContainsKey(freq))

@@ -242,6 +242,30 @@ namespace SoncaAudioInspector
                     }
                 }
 
+                // Apply a 3-point moving average to smooth out minor noise fluctuations and room reflection ripples
+                if (rawDbResults.Count >= 3)
+                {
+                    var smoothedResults = new Dictionary<double, double>();
+                    var sortedFreqs = rawDbResults.Keys.OrderBy(f => f).ToList();
+                    for (int idx = 0; idx < sortedFreqs.Count; idx++)
+                    {
+                        double f = sortedFreqs[idx];
+                        if (idx == 0)
+                        {
+                            smoothedResults[f] = (rawDbResults[sortedFreqs[0]] * 2.0 + rawDbResults[sortedFreqs[1]]) / 3.0;
+                        }
+                        else if (idx == sortedFreqs.Count - 1)
+                        {
+                            smoothedResults[f] = (rawDbResults[sortedFreqs[idx - 1]] + rawDbResults[sortedFreqs[idx]] * 2.0) / 3.0;
+                        }
+                        else
+                        {
+                            smoothedResults[f] = (rawDbResults[sortedFreqs[idx - 1]] + rawDbResults[sortedFreqs[idx]] + rawDbResults[sortedFreqs[idx + 1]]) / 3.0;
+                        }
+                    }
+                    rawDbResults = smoothedResults;
+                }
+
                 // Normalize results such that 1 kHz (1000 Hz) is 0 dB
                 double referenceDb = 0;
                 if (rawDbResults.ContainsKey(1000))
@@ -261,12 +285,13 @@ namespace SoncaAudioInspector
 
                 Dictionary<double, double> normalizedResults = new Dictionary<double, double>();
                 double runMaxFreqDev = 0;
-                int checkedPointsCount = 0;
-                int failedPointsCount = 0;
-
-                bool runBassPassed = true;
-                bool runMidPassed = true;
-                bool runTreblePassed = true;
+                
+                int bassChecked = 0;
+                int bassFailed = 0;
+                int midChecked = 0;
+                int midFailed = 0;
+                int trebleChecked = 0;
+                int trebleFailed = 0;
 
                 foreach (var kvp in rawDbResults)
                 {
@@ -276,11 +301,9 @@ namespace SoncaAudioInspector
                     // Fire point event so the UI chart updates in real-time
                     OnFrequencyResponsePoint?.Invoke(kvp.Key, normDb);
 
-                    // Evaluate limits (only between 100 Hz and 15000 Hz)
-                    if (kvp.Key >= 100 && kvp.Key <= 15000)
+                    // Evaluate limits (only between 50 Hz and 15000 Hz)
+                    if (kvp.Key >= 50 && kvp.Key <= 15000)
                     {
-                        checkedPointsCount++;
-
                         double targetDb = 0;
                         bool hasStandard = StandardCurve != null && StandardCurve.Count > 0;
                         if (hasStandard && StandardCurve.ContainsKey(kvp.Key))
@@ -295,37 +318,41 @@ namespace SoncaAudioInspector
                         }
 
                         bool isLimitExceeded = hasStandard && (absoluteDev > FreqResponseToleranceDb);
-                        if (isSilent || isLimitExceeded)
+                        bool isPointFailed = isSilent || isLimitExceeded;
+
+                        if (kvp.Key < MidMin)
                         {
-                            failedPointsCount++;
-                            if (kvp.Key < MidMin) runBassPassed = false;
-                            else if (kvp.Key < TrebleMin) runMidPassed = false;
-                            else runTreblePassed = false;
+                            bassChecked++;
+                            if (isPointFailed) bassFailed++;
+                        }
+                        else if (kvp.Key < TrebleMin)
+                        {
+                            midChecked++;
+                            if (isPointFailed) midFailed++;
+                        }
+                        else
+                        {
+                            trebleChecked++;
+                            if (isPointFailed) trebleFailed++;
                         }
                     }
                 }
 
-                // If isSilent, force all to failed
-                if (isSilent)
-                {
-                    runBassPassed = false;
-                    runMidPassed = false;
-                    runTreblePassed = false;
-                }
+                bool runBassPassed = !isSilent && ((double)bassFailed / BassCount <= 0.20);
+                bool runMidPassed = !isSilent && ((double)midFailed / MidCount <= 0.20);
+                bool runTreblePassed = !isSilent && ((double)trebleFailed / TrebleCount <= 0.20);
 
-                // Pass the run if fewer than or equal to 10% of the points are out of bounds
-                double runFailedRatio = checkedPointsCount > 0 ? (double)failedPointsCount / checkedPointsCount : 0.0;
-                bool runPassed = !isSilent && (runFailedRatio <= 0.10);
+                bool runPassed = runBassPassed && runMidPassed && runTreblePassed;
 
                 if (runPassed)
                 {
                     passedRuns++;
-                    OnLogMessage?.Invoke("Step 2", $"Run {run} PASSED. Out-of-bounds: {failedPointsCount}/{checkedPointsCount} ({runFailedRatio * 100.0:F1}%), Max Dev: {runMaxFreqDev:F2} dB");
+                    OnLogMessage?.Invoke("Step 2", $"Run {run} PASSED. Bass: {bassFailed}/{bassChecked}, Mid: {midFailed}/{midChecked}, Treble: {trebleFailed}/{trebleChecked}, Max Dev: {runMaxFreqDev:F2} dB");
                 }
                 else
                 {
                     failedRuns++;
-                    OnLogMessage?.Invoke("Step 2", $"Run {run} FAILED. Out-of-bounds: {failedPointsCount}/{checkedPointsCount} ({runFailedRatio * 100.0:F1}%), Max Dev: {runMaxFreqDev:F2} dB");
+                    OnLogMessage?.Invoke("Step 2", $"Run {run} FAILED. Bass: {bassFailed}/{bassChecked}{(runBassPassed ? "" : " (FAIL)")}, Mid: {midFailed}/{midChecked}{(runMidPassed ? "" : " (FAIL)")}, Treble: {trebleFailed}/{trebleChecked}{(runTreblePassed ? "" : " (FAIL)")}, Max Dev: {runMaxFreqDev:F2} dB");
                 }
 
                 // Update representative fields based on current run
@@ -344,7 +371,7 @@ namespace SoncaAudioInspector
                     foreach (var kvp in normalizedResults)
                     {
                         double freq = kvp.Key;
-                        if (freq >= 100 && freq <= 15000 && StandardCurve.ContainsKey(freq))
+                        if (freq >= 50 && freq <= 15000 && StandardCurve.ContainsKey(freq))
                         {
                             double currDb = kvp.Value;
                             double stdDb = StandardCurve[freq];
@@ -398,7 +425,7 @@ namespace SoncaAudioInspector
                                 double rawDb = kvp.Value;
                                 double normDb = normalizedResults[freq];
                                 string status = "N/A";
-                                if (freq >= 100 && freq <= 15000)
+                                if (freq >= 50 && freq <= 15000)
                                 {
                                     double targetDb = 0;
                                     if (StandardCurve != null && StandardCurve.ContainsKey(freq)) targetDb = StandardCurve[freq];

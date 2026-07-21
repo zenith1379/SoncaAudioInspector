@@ -111,28 +111,12 @@ namespace SoncaAudioInspector
                     using (var client = new HttpClient())
                     {
                         client.Timeout = TimeSpan.FromSeconds(10);
-                        using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                        using (var response = await client.GetAsync(url))
                         {
                             if (response.IsSuccessStatusCode)
                             {
-                                long? serverLength = response.Content.Headers.ContentLength;
-                                bool needDownload = true;
-
-                                if (System.IO.File.Exists(localPath))
-                                {
-                                    long localLength = new System.IO.FileInfo(localPath).Length;
-                                    if (serverLength.HasValue && serverLength.Value == localLength)
-                                    {
-                                        needDownload = false;
-                                    }
-                                }
-
-                                if (needDownload)
-                                {
-                                    byte[] contentBytes = await response.Content.ReadAsByteArrayAsync();
-                                    System.IO.File.WriteAllBytes(localPath, contentBytes);
-                                }
-
+                                byte[] contentBytes = await response.Content.ReadAsByteArrayAsync();
+                                System.IO.File.WriteAllBytes(localPath, contentBytes);
                                 sys002Pass = true;
                             }
                             else
@@ -245,10 +229,10 @@ namespace SoncaAudioInspector
                 this.Close();
 
                 // Launch main window
-                //MainWindow main = new MainWindow();
-                //App.Current.MainWindow = main;
-                //main.Show();
-                //this.Close();
+                /*MainWindow main = new MainWindow();
+                App.Current.MainWindow = main;
+                main.Show();
+                this.Close();*/
 
             }
             else
