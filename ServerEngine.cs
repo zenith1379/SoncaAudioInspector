@@ -1197,6 +1197,7 @@ namespace SoncaAudioInspector
             public string? Name { get; set; }
             public string? Username { get; set; }
             public string? Email { get; set; }
+            public string? SessionId { get; set; }
         }
 
         public sealed class ApiException : Exception
