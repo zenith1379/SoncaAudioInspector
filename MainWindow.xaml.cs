@@ -444,6 +444,7 @@ namespace SoncaAudioInspector
             }
             else
             {
+                try { ServerEngine.LogoutAsync().Wait(500); } catch { }
                 base.OnClosing(e);
             }
         }
