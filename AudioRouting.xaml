@@ -73,10 +73,14 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Playback Volume" FontSize="11" Foreground="#71717A"/>
-                                <TextBlock Name="LblPlaybackVolume" Grid.Column="1" Text="80%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
+                                <TextBlock Text="Playback Volume" FontSize="11" Foreground="#71717A" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Name="BtnDecreasePlaybackVolume" Content="-" Click="BtnDecreasePlaybackVolume_Click" Style="{StaticResource ModernButtonStyle}" Width="24" Height="22" Padding="0" FontSize="14" FontWeight="Bold" Margin="0,0,4,0" ToolTip="Giảm 10%"/>
+                                    <TextBlock Name="LblPlaybackVolume" Text="80%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold" VerticalAlignment="Center" Width="38" TextAlignment="Center"/>
+                                    <Button Name="BtnIncreasePlaybackVolume" Content="+" Click="BtnIncreasePlaybackVolume_Click" Style="{StaticResource ModernButtonStyle}" Width="24" Height="22" Padding="0" FontSize="14" FontWeight="Bold" Margin="4,0,0,0" ToolTip="Tăng 10%"/>
+                                </StackPanel>
                             </Grid>
-                            <Slider Name="SliderPlaybackVolume" Minimum="0" Maximum="100" Value="80" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="SliderPlaybackVolume_ValueChanged" Margin="0,0,0,5"/>
+                            <Slider Name="SliderPlaybackVolume" Minimum="0" Maximum="100" Value="80" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="SliderPlaybackVolume_ValueChanged" PreviewMouseWheel="SliderPlaybackVolume_PreviewMouseWheel" Margin="0,0,0,5"/>
                         </StackPanel>
                     </Border>
 
@@ -103,10 +107,14 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Recording Gain" FontSize="11" Foreground="#71717A"/>
-                                <TextBlock Name="LblRecordingGain" Grid.Column="1" Text="100%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold"/>
+                                <TextBlock Text="Recording Gain" FontSize="11" Foreground="#71717A" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Name="BtnDecreaseRecordingGain" Content="-" Click="BtnDecreaseRecordingGain_Click" Style="{StaticResource ModernButtonStyle}" Width="24" Height="22" Padding="0" FontSize="14" FontWeight="Bold" Margin="0,0,4,0" ToolTip="Giảm 10%"/>
+                                    <TextBlock Name="LblRecordingGain" Text="100%" FontSize="11" Foreground="#3B82F6" FontWeight="Bold" VerticalAlignment="Center" Width="38" TextAlignment="Center"/>
+                                    <Button Name="BtnIncreaseRecordingGain" Content="+" Click="BtnIncreaseRecordingGain_Click" Style="{StaticResource ModernButtonStyle}" Width="24" Height="22" Padding="0" FontSize="14" FontWeight="Bold" Margin="4,0,0,0" ToolTip="Tăng 10%"/>
+                                </StackPanel>
                             </Grid>
-                            <Slider Name="SliderRecordingGain" Minimum="0" Maximum="200" Value="100" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="SliderRecordingGain_ValueChanged" Margin="0,0,0,5"/>
+                            <Slider Name="SliderRecordingGain" Minimum="0" Maximum="200" Value="100" IsSnapToTickEnabled="True" TickFrequency="1" ValueChanged="SliderRecordingGain_ValueChanged" PreviewMouseWheel="SliderRecordingGain_PreviewMouseWheel" Margin="0,0,0,5"/>
                         </StackPanel>
                     </Border>
 

@@ -352,7 +352,7 @@ namespace SoncaAudioInspector
             return result;
         }
 
-        public static async Task<bool> UploadAudioQaResultAsync(ProductInfo product, bool passed)
+        public static async Task<bool> UploadAudioQaResultAsync(ProductInfo product, bool passed, IEnumerable<TestStep>? steps = null)
         {
             if (product is null || string.IsNullOrWhiteSpace(product.Id))
             {
@@ -362,11 +362,20 @@ namespace SoncaAudioInspector
 
             try
             {
+                var stepList = steps?.Select((s, idx) => new
+                {
+                    stepIndex = idx + 1,
+                    stepName = s.Name,
+                    status = MapStepStatus(s.Status),
+                    details = s.Details
+                }).ToList();
+
                 var body = new
                 {
                     productId = product.Id,
                     status = passed ? "PASS" : "FAIL",
-                    note = passed ? "Audio auto test passed" : "Audio auto test failed"
+                    note = passed ? "Audio auto test passed" : "Audio auto test failed",
+                    steps = stepList
                 };
 
                 JsonElement data = await SendAuthorizedForDataAsync(HttpMethod.Post, "api/app/qa-audio", body);
@@ -377,6 +386,15 @@ namespace SoncaAudioInspector
                 LastError = ToUserMessage(ex);
                 return false;
             }
+        }
+
+        private static string MapStepStatus(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return "PENDING";
+            string s = status.Trim().ToUpperInvariant();
+            if (s is "PASS" or "PASSED") return "PASS";
+            if (s is "FAIL" or "FAILED") return "FAIL";
+            return "PENDING";
         }
 
         public static HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string relativePath)

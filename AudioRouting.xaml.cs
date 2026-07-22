@@ -852,6 +852,38 @@ namespace SoncaAudioInspector
             CheckAndLoadStandardDevice();
         }
 
+        private void BtnDecreasePlaybackVolume_Click(object sender, RoutedEventArgs e)
+        {
+            if (SliderPlaybackVolume != null)
+            {
+                SliderPlaybackVolume.Value = Math.Max(SliderPlaybackVolume.Minimum, SliderPlaybackVolume.Value - 10);
+            }
+        }
+
+        private void BtnIncreasePlaybackVolume_Click(object sender, RoutedEventArgs e)
+        {
+            if (SliderPlaybackVolume != null)
+            {
+                SliderPlaybackVolume.Value = Math.Min(SliderPlaybackVolume.Maximum, SliderPlaybackVolume.Value + 10);
+            }
+        }
+
+        private void SliderPlaybackVolume_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            if (SliderPlaybackVolume != null)
+            {
+                if (e.Delta > 0)
+                {
+                    SliderPlaybackVolume.Value = Math.Min(SliderPlaybackVolume.Maximum, SliderPlaybackVolume.Value + 10);
+                }
+                else if (e.Delta < 0)
+                {
+                    SliderPlaybackVolume.Value = Math.Max(SliderPlaybackVolume.Minimum, SliderPlaybackVolume.Value - 10);
+                }
+                e.Handled = true;
+            }
+        }
+
         private void SliderRecordingGain_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_audioEngine != null)
@@ -863,6 +895,38 @@ namespace SoncaAudioInspector
                 LblRecordingGain.Text = $"{(int)Math.Round(e.NewValue)}%";
             }
             CheckAndLoadStandardDevice();
+        }
+
+        private void BtnDecreaseRecordingGain_Click(object sender, RoutedEventArgs e)
+        {
+            if (SliderRecordingGain != null)
+            {
+                SliderRecordingGain.Value = Math.Max(SliderRecordingGain.Minimum, SliderRecordingGain.Value - 10);
+            }
+        }
+
+        private void BtnIncreaseRecordingGain_Click(object sender, RoutedEventArgs e)
+        {
+            if (SliderRecordingGain != null)
+            {
+                SliderRecordingGain.Value = Math.Min(SliderRecordingGain.Maximum, SliderRecordingGain.Value + 10);
+            }
+        }
+
+        private void SliderRecordingGain_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            if (SliderRecordingGain != null)
+            {
+                if (e.Delta > 0)
+                {
+                    SliderRecordingGain.Value = Math.Min(SliderRecordingGain.Maximum, SliderRecordingGain.Value + 10);
+                }
+                else if (e.Delta < 0)
+                {
+                    SliderRecordingGain.Value = Math.Max(SliderRecordingGain.Minimum, SliderRecordingGain.Value - 10);
+                }
+                e.Handled = true;
+            }
         }
 
         private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
@@ -1137,7 +1201,7 @@ namespace SoncaAudioInspector
 
             if (ChkSendToServer.IsChecked == true && ServerEngine.CurrentProduct != null)
             {
-                bool uploaded = await ServerEngine.UploadAudioQaResultAsync(ServerEngine.CurrentProduct, suitePassed);
+                bool uploaded = await ServerEngine.UploadAudioQaResultAsync(ServerEngine.CurrentProduct, suitePassed, _testRunner?.Steps);
                 if (!uploaded)
                 {
                     ModernMessageBox.Show(Window.GetWindow(this), ServerEngine.LastError ?? "Lỗi upload kết quả lên server.", "Lỗi server", ModernMessageBox.MessageBoxType.Error);

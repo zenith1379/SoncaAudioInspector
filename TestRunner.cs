@@ -84,6 +84,7 @@ namespace SoncaAudioInspector
         public event Action<string, string> OnTestSubstatusChanged; // type (Freq/THD), details (e.g. "Playing Sweep...")
 
         private List<TestStep> _steps;
+        public IReadOnlyList<TestStep> Steps => _steps;
         private bool _isCancelled = false;
 
         public TestRunner(AudioEngine audioEngine)
