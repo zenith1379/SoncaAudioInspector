@@ -193,13 +193,12 @@ namespace SoncaAudioInspector
                 double targetFreq = targetFrequencies[i];
                 int centerBin = (int)Math.Round(targetFreq / binWidth);
 
-                // 1. Find the actual peak bin within the search window (to account for clock drift)
                 // Restrict search width so it doesn't overlap with adjacent tones in Multitone
                 double distLeft = i > 0 ? (targetFreq - targetFrequencies[i - 1]) / 2.0 : targetFreq * 0.1;
                 double distRight = i < targetFrequencies.Length - 1 ? (targetFrequencies[i + 1] - targetFreq) / 2.0 : targetFreq * 0.1;
                 double maxSearch = Math.Min(distLeft, distRight) * 0.8; // 80% of half-distance
                 
-                double searchWidthHz = Math.Min(maxSearch, Math.Max(2.0, targetFreq * 0.015)); 
+                double searchWidthHz = Math.Min(maxSearch, Math.Max(2.0, targetFreq * 0.015));
                 int binSpan = (int)Math.Ceiling(searchWidthHz / binWidth);
 
                 int startBin = Math.Max(0, centerBin - binSpan);
