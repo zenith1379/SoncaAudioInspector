@@ -49,8 +49,10 @@ namespace SoncaAudioInspector
         public static DateTimeOffset? ApiKeyExpiresAtUtc { get; private set; }
         public static DateTimeOffset? RefreshTokenExpiresAtUtc { get; private set; }
         public static DateTimeOffset? AppTokenExpiresAtUtc { get; private set; }
+        public static string? SessionId { get; private set; }
         public static string? LastError { get; private set; }
         public static ProductInfo? CurrentProduct { get; private set; }
+        private static System.Timers.Timer? _heartbeatTimer;
 
         public static bool HasValidApiKey =>
             !string.IsNullOrWhiteSpace(ApiKey) &&
@@ -145,10 +147,12 @@ namespace SoncaAudioInspector
                     UserName = data.Name ?? account.Trim();
                     UserEmail = data.Email ?? (account.Contains('@') ? account.Trim() : null);
                     UserRole = string.IsNullOrWhiteSpace(data.Role) ? "STAFF" : data.Role.ToUpperInvariant();
+                    SessionId = data.SessionId;
 
                     ApiKeyExpiresAtUtc = ReadExpiresFromPayload(responseJson, "expiresIn");
                     RefreshTokenExpiresAtUtc = ReadExpiresFromPayload(responseJson, "refreshExpiresIn");
                     LastError = null;
+                    StartHeartbeat();
                     return true;
                 }
             }
@@ -157,6 +161,50 @@ namespace SoncaAudioInspector
                 LastError = ToUserMessage(ex);
                 ClearStaffSession(keepError: true);
                 return false;
+            }
+        }
+
+        private static void StartHeartbeat()
+        {
+            StopHeartbeat();
+            if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(AppToken)) return;
+
+            _heartbeatTimer = new System.Timers.Timer(60000); // 1 minute
+            _heartbeatTimer.Elapsed += OnHeartbeatTimerElapsed;
+            _heartbeatTimer.AutoReset = true;
+            _heartbeatTimer.Start();
+        }
+
+        private static void StopHeartbeat()
+        {
+            if (_heartbeatTimer != null)
+            {
+                _heartbeatTimer.Stop();
+                _heartbeatTimer.Dispose();
+                _heartbeatTimer = null;
+            }
+        }
+
+        private static async void OnHeartbeatTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(SessionId) || string.IsNullOrWhiteSpace(AppToken))
+                {
+                    StopHeartbeat();
+                    return;
+                }
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{ApiBaseUrl}/api/app/heartbeat")
+                {
+                    Content = JsonContent(new { sessionId = SessionId })
+                };
+                request.Headers.Add("X-App-Api-Key", AppToken);
+                using var response = await Client.SendAsync(request);
+            }
+            catch
+            {
+                // Ignore network errors on heartbeat
             }
         }
 
@@ -637,8 +685,9 @@ namespace SoncaAudioInspector
             return !string.IsNullOrWhiteSpace(AppToken);
         }
 
-        private static void ClearStaffSession(bool keepError = false)
+        public static void ClearStaffSession(bool keepError = false)
         {
+            StopHeartbeat();
             StaffID = null;
             ApiKey = null;
             RefreshToken = null;
