@@ -250,7 +250,7 @@ namespace SoncaAudioInspector
                 {
                     await EnsureAppApiKeyAsync(forceBootstrap: false);
                     using var request = CreateAuthorizedRequest(HttpMethod.Post, "api/auth/logout");
-                    request.Content = JsonContent(new { refreshToken = RefreshToken });
+                    request.Content = JsonContent(new { refreshToken = RefreshToken, sessionId = SessionId });
                     await Client.SendAsync(request);
                 }
                 catch
