@@ -18,6 +18,17 @@ namespace SoncaAudioInspector
             LblStatus.Text = "";
             LoadRememberedLogin();
             SetUiEnabled(true);
+            
+            System.Windows.Input.KeyEventHandler enterHandler = (s, args) => 
+            {
+                if (args.Key == System.Windows.Input.Key.Enter && BtnLogin.IsEnabled) 
+                {
+                    BtnLogin_Click(this, new RoutedEventArgs());
+                }
+            };
+            TxtUsername.KeyDown += enterHandler;
+            TxtPassword.KeyDown += enterHandler;
+            TxtPasswordVisible.KeyDown += enterHandler;
         }
 
         private async void BtnLogin_Click(object sender, RoutedEventArgs e)

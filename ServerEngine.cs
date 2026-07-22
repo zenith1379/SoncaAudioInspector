@@ -15,6 +15,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using Windows.Devices.Geolocation;
 
 namespace SoncaAudioInspector
 {
@@ -111,6 +112,12 @@ namespace SoncaAudioInspector
                         Content = JsonContent(requestBody)
                     };
                     request.Headers.Add("X-App-Api-Key", AppToken);
+                    
+                    string? location = await GetLocationAsync();
+                    if (!string.IsNullOrEmpty(location))
+                    {
+                        request.Headers.Add("X-App-Location", location);
+                    }
 
                     using HttpResponseMessage response = await Client.SendAsync(request);
                     string responseJson = await response.Content.ReadAsStringAsync();
@@ -150,6 +157,25 @@ namespace SoncaAudioInspector
                 LastError = ToUserMessage(ex);
                 ClearStaffSession(keepError: true);
                 return false;
+            }
+        }
+
+        private static async Task<string?> GetLocationAsync()
+        {
+            try
+            {
+                var accessStatus = await Geolocator.RequestAccessAsync();
+                if (accessStatus == GeolocationAccessStatus.Allowed)
+                {
+                    Geolocator geolocator = new Geolocator { DesiredAccuracyInMeters = 50 };
+                    Geoposition pos = await geolocator.GetGeopositionAsync(TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(5));
+                    return $"{pos.Coordinate.Point.Position.Latitude.ToString(CultureInfo.InvariantCulture)}, {pos.Coordinate.Point.Position.Longitude.ToString(CultureInfo.InvariantCulture)}";
+                }
+                return null;
+            }
+            catch
+            {
+                return null;
             }
         }
 
