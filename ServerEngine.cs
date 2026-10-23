@@ -18,7 +18,7 @@ using Microsoft.Win32;
 
 namespace SoncaAudioInspector
 {
-    public static class ServerEngine
+    public static partial class ServerEngine
     {
         private const string DefaultApiBaseUrl = "https://inventory.acnos.store";
         private const string RegistryPath = @"Software\SoncaAudioInspector\Auth";
@@ -790,6 +790,9 @@ namespace SoncaAudioInspector
             return result;
         }
 
+        public sealed record AudioQaUploadReceipt(int HttpStatus, string LogId, string[] ImageUrls, int ExpectedImageCount);
+        public static AudioQaUploadReceipt? LastAudioQaUploadReceipt { get; private set; }
+
         public static async Task<bool> UploadAudioQaResultAsync(
             ProductInfo product,
             bool passed,
@@ -798,6 +801,7 @@ namespace SoncaAudioInspector
             bool deviceReady = false,
             string? uploadSessionId = null)
         {
+            LastAudioQaUploadReceipt = null;
             if (product is null || string.IsNullOrWhiteSpace(product.Id))
             {
                 LastError = "Chưa có sản phẩm để lưu kết quả QA âm thanh.";
@@ -814,7 +818,9 @@ namespace SoncaAudioInspector
             try
             {
                 var stepSnapshot = steps?.ToArray() ?? Array.Empty<AudioQaStepResult>();
-                var graphSnapshot = graphImagePaths?.ToArray() ?? Array.Empty<string>();
+                var graphSnapshot = graphImagePaths?.Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? Array.Empty<string>();
+                if (graphSnapshot.Length == 0 || graphSnapshot.Any(path => !File.Exists(path)))
+                    throw new IOException("Chưa có đủ ảnh QA để gửi; kết quả chưa được xác nhận upload.");
                 pendingPath = LocalQaStorage.SavePending(new PendingAudioQaUpload(CurrentApiBaseUrl, StaffID ?? "",
                     product.Id, passed, stepSnapshot, graphSnapshot.Select(Path.GetFileName).Select(name => name!).ToArray(),
                     deviceReady, uploadSessionId ?? "", DateTimeOffset.UtcNow), graphSnapshot);
@@ -865,6 +871,16 @@ namespace SoncaAudioInspector
                     return false;
                 }
 
+                using var saved = JsonDocument.Parse(responseJson);
+                var log = saved.RootElement.GetProperty("data");
+                string logId = log.TryGetProperty("logId", out var id) ? id.GetString() ?? "" : "";
+                string[] urls = log.TryGetProperty("imageUrl", out var imageUrl) ? (imageUrl.GetString() ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) : [];
+                if (string.IsNullOrWhiteSpace(logId) || urls.Length != images.Count)
+                {
+                    LastError = $"Server đã nhận yêu cầu nhưng chưa xác nhận đủ ảnh QA ({urls.Length}/{images.Count}). Giữ bản lưu tại máy; kiểm tra log server trước khi gửi lại.";
+                    return false;
+                }
+                LastAudioQaUploadReceipt = new((int)response.StatusCode, logId, urls, images.Count);
                 if (pendingPath != null)
                 {
                     try { LocalQaStorage.MarkUploaded(LocalQaStorage.Root, pendingPath); }

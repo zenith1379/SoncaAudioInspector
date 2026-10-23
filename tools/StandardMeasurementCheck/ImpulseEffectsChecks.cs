@@ -9,6 +9,7 @@ internal static class ImpulseEffectsChecks
     public static void Run(string output)
     {
         Directory.CreateDirectory(output);
+        CheckShortAndNoisyTails();
         foreach (int rate in new[] { 44100, 48000 })
         foreach (var state in new[] { (false, false), (true, false), (false, true), (true, true) })
         {
@@ -17,6 +18,7 @@ internal static class ImpulseEffectsChecks
             var result = ImpulseEffects.Analyze(ir, rate, 128, true, config);
             Console.WriteLine($"{rate} Hz {state}: echo={result.EchoDetected}, reverb={result.ReverbDetected}, delay={result.EchoDelayMs:F3}, occupancy={result.TailOccupancy:F3}, wet T60={result.TailDecay60Seconds:F3}, {result.Verdict}");
             Require(result.IsValid && result.EchoDetected == state.Item1 && result.ReverbDetected == state.Item2 && result.Verdict == "PASS", "Four effect states were not separated.");
+            Require(result.CanClassify(config), "Reliable full IR did not permit classification.");
             if (state.Item1) Require(Math.Abs(result.EchoDelayMs - 200) < 1, "Echo delay mismatch.");
             if (state.Item2) Require(result.TailDecay60Seconds > 2.5 && result.TailDecay60Seconds < 3.5, "Wet-tail decay mismatch.");
             var quiet = ImpulseEffects.Analyze(ir.Select(v => v * .1).ToArray(), rate, 128, true, config);
@@ -38,6 +40,8 @@ internal static class ImpulseEffectsChecks
         var uncertain = ImpulseEffects.Analyze(moderateNoise, 48000, 128, true, new() { ExpectEcho = true, ExpectReverb = true });
         Require(uncertain.Verdict == "INCONCLUSIVE" && !uncertain.TailTruncated
             && uncertain.Findings.All(f => !f.Contains("MISSING")), "IR noise was mislabeled as missing effects or a truncated tail.");
+        Require(!uncertain.CanClassify(new()) && !ImpulseEffects.Analyze(dry.Take(24000).ToArray(), 48000, 128, true).CanClassify(new()),
+            "Noisy or short IR allowed an absence classification.");
         Console.WriteLine("PASS invalid/noisy/short IR, missing requirements, gain invariance and no unconfigured product verdict.");
 
         var source = Enumerable.Range(0, 2200).ToDictionary(i => 20 * Math.Pow(2, i / 192.0), _ => -20.0);
@@ -75,6 +79,79 @@ internal static class ImpulseEffectsChecks
                 samples[i] += .03 * (random.NextDouble() - .5) * Math.Exp(-Math.Log(1000) * (i - 128) / (3.0 * rate));
         }
         return samples;
+    }
+
+    private static void CheckShortAndNoisyTails()
+    {
+        foreach (int fs in new[] { 44100, 48000 })
+        foreach (double t60 in new[] { .6, .9, 1.5 })
+        foreach (bool echo in new[] { false, true })
+        {
+            var ir = Impulse(fs, echo, false);
+            var random = new Random(731);
+            for (int i = 128 + fs / 50; i < ir.Length; i++)
+                ir[i] += .03 * (random.NextDouble() - .5) * Math.Exp(-Math.Log(1000) * (i - 128) / (t60 * fs));
+            var result = ImpulseEffects.Analyze(ir, fs, 128, true);
+            Require(result.ReverbDetected && result.EchoDetected == echo, $"Short wet tail missed: {fs}, {t60}, echo={echo}.");
+        }
+        for (int seed = 0; seed < 64; seed++)
+        {
+            var random = new Random(seed);
+            var ir = Impulse(48000, seed % 2 == 0, false);
+            for (int i = 0; i < ir.Length; i++) ir[i] += .003 * (random.NextDouble() - .5);
+            Require(!ImpulseEffects.Analyze(ir, 48000, 128, true).ReverbDetected, "Stationary noise or echo was called reverb.");
+        }
+        foreach (bool flat in new[] { false, true })
+        {
+            var ir = Impulse(48000, false, false);
+            var random = new Random(941);
+            for (int i = 128 + 48000 / 20; i < 128 + 48000; i++)
+            {
+                double t = (i - 128) / 48000.0;
+                if (flat || (t > .20 && t < .21) || (t > .40 && t < .41)) ir[i] += .03 * (random.NextDouble() - .5);
+            }
+            Require(!ImpulseEffects.Analyze(ir, 48000, 128, true).ReverbDetected, "Flat noise burst or isolated reflections were called a decaying diffuse tail.");
+        }
+        foreach (double frequency in new[] { 700.0, 2000.0, 3500.0 })
+        {
+            var ir = Impulse(48000, false, false);
+            for (int i = 128 + 960; i < ir.Length; i++)
+            {
+                double t = (i - 128) / 48000.0;
+                ir[i] += .02 * Math.Sin(2 * Math.PI * frequency * t) * Math.Exp(-Math.Log(1000) * t);
+            }
+            Require(!ImpulseEffects.Analyze(ir, 48000, 128, true).ReverbDetected, "A narrow decaying resonance was called diffuse reverb.");
+        }
+        Console.WriteLine("PASS 12 short wet tails, 64 noisy dry/echo controls, stationary burst, sparse reflections and three narrow resonances.");
+    }
+
+    private sealed record CaptureCase(string Directory, bool Echo, bool Reverb);
+
+    public static void RunCaptured(string manifestPath, string output)
+    {
+        Directory.CreateDirectory(output);
+        var options = new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var cases = JsonSerializer.Deserialize<CaptureCase[]>(File.ReadAllText(manifestPath), options)!;
+        string root = Path.GetDirectoryName(manifestPath)!;
+        var rows = new List<object>();
+        foreach (var item in cases)
+        {
+            var saved = JsonSerializer.Deserialize<StandardAcousticResult>(File.ReadAllText(Path.Combine(root, item.Directory, "effects-result.json")), options)!;
+            Require(saved.Validity != "INVALID" && saved.ImpulsePlot?.Samples.Length > 0, "Physical capture is invalid or lacks full IR.");
+            var ir = saved.ImpulsePlot!;
+            foreach (int seconds in new[] { 3, 5 }.Where(s => (ir.Samples.Length - ir.DirectIndex) / (double)saved.SampleRate >= s - .01))
+            {
+                var samples = ir.Samples.Take(Math.Min(ir.Samples.Length, ir.DirectIndex + seconds * saved.SampleRate + 1)).ToArray();
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                var measured = ImpulseEffects.Analyze(samples, saved.SampleRate, ir.DirectIndex, true);
+                timer.Stop();
+                rows.Add(new { item.Directory, seconds, expectedEcho = item.Echo, expectedReverb = item.Reverb, elapsedMs = timer.Elapsed.TotalMilliseconds, measured });
+                Console.WriteLine($"{item.Directory}, {seconds}s: echo={measured.EchoDetected}, reverb={measured.ReverbDetected}, diffuse {measured.DiffuseTailDurationMs:F0} ms, SNR {measured.DiffuseTailSnrDb:F2} dB, R2 {measured.TailFitRSquared:F3}.");
+                File.WriteAllText(Path.Combine(output, "captured-regression.json"), JsonSerializer.Serialize(rows, options));
+                Require(measured.EchoDetected == item.Echo && measured.ReverbDetected == item.Reverb, "Physical ON/OFF capture classification mismatch.");
+            }
+        }
+        Console.WriteLine($"PASS {rows.Count} replayed physical IR cases with user-confirmed effect states. No audio emitted by replay.");
     }
 
     private static float[] Convolve(float[] signal, double[] impulse)

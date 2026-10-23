@@ -470,11 +470,12 @@ public partial class StandardMeasurementWindow : UserControl
             ShowMessage("Mức phát sweep phải từ -60 dBFS đến 0 dBFS.", "Cấu hình chưa hợp lệ", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (!TryReadDouble(TxtIrLeftMs.Text, out double gateLeftMs) || gateLeftMs < 0.2 || gateLeftMs > 50
+        double fdwCycles = 15;
+        if (!TryReadDouble(TxtIrLeftMs.Text, out double gateLeftMs) || gateLeftMs < 0.2 || gateLeftMs > 500
             || !TryReadDouble(TxtIrRightMs.Text, out double gateRightMs) || gateRightMs < 2 || gateRightMs > 500
-            || !TryReadDouble(TxtFdwCycles.Text, out double fdwCycles) || fdwCycles < 2 || fdwCycles > 100)
+            || (ChkFdw.IsChecked == true && (!TryReadDouble(TxtFdwCycles.Text, out fdwCycles) || fdwCycles < 2 || fdwCycles > 100)))
         {
-            ShowMessage("Trước đỉnh: 0,2–50 ms; sau đỉnh tối đa: 2–500 ms; FDW: 2–100 chu kỳ.",
+            ShowMessage("Trước đỉnh: 0,2–500 ms; sau đỉnh tối đa: 2–500 ms; khi bật FDW: 2–100 chu kỳ.",
                 "Cấu hình impulse chưa hợp lệ", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -482,6 +483,7 @@ public partial class StandardMeasurementWindow : UserControl
         double amplitude = Math.Pow(10.0, levelDb / 20.0);
         _lastResult = null;
 
+        var measurementTimer = Stopwatch.StartNew();
         if (_isMeasureMonitorRunning) StopMeasureMonitor();
         await Task.Delay(120);
         if (!await EnsureSweepAudioReadyAsync(playback!, recording!))
@@ -505,7 +507,8 @@ public partial class StandardMeasurementWindow : UserControl
                 DecayAnalysisSeconds: 3.0,
                 ImpulseWindowLeftMs: gateLeftMs,
                 ImpulseWindowRightMs: gateRightMs,
-                FrequencyDependentWindowCycles: fdwCycles);
+                FrequencyDependentWindowCycles: fdwCycles,
+                FrequencyDependentWindowing: ChkFdw.IsChecked == true);
 
             float[] excitation = StandardAcousticMeasurement.GenerateLogSweep(sourceSettings);
             float[] playbackSweep = TestRunner.AddLogSweepPreroll(excitation, targetSampleRate);
@@ -534,6 +537,7 @@ public partial class StandardMeasurementWindow : UserControl
                 },
                 customSweepSamples: playbackSweep);
 			sweepStopwatch.Stop();
+			double captureSeconds = sweepStopwatch.Elapsed.TotalSeconds;
 			SweepProgressBar.Value = 100;
 			TxtSweepProgress.Text = "Hoàn tất thu · 100%";
 
@@ -565,14 +569,19 @@ public partial class StandardMeasurementWindow : UserControl
                 ? 10.0 * Math.Log10(noisePower / (noiseCount - noiseStart) + 1E-18)
                 : double.NaN;
 
-            _lastResult = StandardAcousticMeasurement.AnalyzeLogSweep(
-                analysisExcitation,
-                recorded,
-                analysisSettings,
-                activeCalib,
-                preSweepNoiseFloorDbFs);
+            TxtStatus.Text = "Đã thu xong, đang phân tích sweep...";
+            TxtSweepProgress.Text = "Đang phân tích...";
+            var analysisTimer = Stopwatch.StartNew();
+            var stageTimings = new List<string>();
+            _lastResult = await Task.Run(() => StandardAcousticMeasurement.AnalyzeLogSweep(
+                analysisExcitation, recorded, analysisSettings, activeCalib, preSweepNoiseFloorDbFs,
+                (stage, ms) => stageTimings.Add($"{stage}={ms:F0}ms")));
+            analysisTimer.Stop();
 
             RenderSweepResult(_lastResult);
+            TxtSummary.Text += $"\nThời gian: phát/thu {captureSeconds:F2}s; phân tích {analysisTimer.Elapsed.TotalSeconds:F2}s; tổng đến hiển thị {measurementTimer.Elapsed.TotalSeconds:F2}s.";
+            Debug.WriteLine("Sweep performance: " + string.Join(", ", stageTimings));
+            TxtSweepProgress.Text = $"Hoàn tất · {measurementTimer.Elapsed.TotalSeconds:F1}s";
             TxtStatus.Text = _lastResult.Validity == "INVALID"
                 ? "CHƯA ĐO ĐƯỢC: " + (_lastResult.Diagnostics.FirstOrDefault(item => item.Severity == "INVALID")?.Message ?? _lastResult.Warning)
                 : "ĐO XONG HỢP LỆ (CHUẨN REW): Đã cập nhật đáp tuyến, méo hài THD, RT60 và xung.";

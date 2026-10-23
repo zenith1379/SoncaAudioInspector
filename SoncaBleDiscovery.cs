@@ -6,11 +6,16 @@ public interface ISoncaMixerWriter
 {
     bool IsConnected { get; }
     bool SupportsMixerControls { get; }
+    IReadOnlyDictionary<ushort, ushort> MixerState { get; }
+    Task<bool> SetOptionAsync(SoncaMixerOption option, bool enabled);
     Task<bool> SendPacketAsync(byte[] data, string? description = null);
 }
 
 public static class SoncaBleDiscovery
 {
+    public static bool MatchesAudioPeer(ulong address, IEnumerable<BluetoothAudioPeer> peers) => address > 0 && address <= 0xFFFFFFFFFFFFUL
+        && peers.Any(p => p.Address == address || (p.Address ^ address) == 0x010000000000UL);
+
     public static BleDeviceInfo? Merge(ulong address, string? name, short rssi, IEnumerable<Guid> serviceUuids, BleDeviceInfo? previous = null)
     {
         Guid[] services = (previous?.ServiceUuids ?? Array.Empty<Guid>()).Union(serviceUuids).ToArray();
@@ -31,7 +36,7 @@ public static class SoncaBleDiscovery
         // Require its advertised Sonca service and all other address bytes to
         // match the connected Windows peer; never choose just by RSSI/name.
         var matches = devices.Where(d => d.ServiceUuids.Contains(SoncaBleProtocol.PrimaryServiceUuid)
-            && connectedAudio.Any(a => a.Address == d.Address || (a.Address ^ d.Address) == 0x010000000000UL)).ToArray();
+            && MatchesAudioPeer(d.Address, connectedAudio)).ToArray();
         return matches.Length == 1 ? matches[0] : null;
     }
 }

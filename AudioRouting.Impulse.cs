@@ -30,7 +30,8 @@ public partial class AudioRouting
     {
         if (_measurementDetailsWindow == null)
         {
-            _measurementDetailsWindow = new MeasurementDetailsWindow { Owner = Window.GetWindow(this) };
+            _measurementDetailsWindow = new MeasurementDetailsWindow { Owner = Window.GetWindow(this), DiagnosticRunner = RunMechanicalDiagnosticAsync,
+                SignalDiagnosticRunner = RunSignalDiagnosticAsync };
             _measurementDetailsWindow.Closed += (_, _) => _measurementDetailsWindow = null;
             _measurementDetailsWindow.Show();
         }
@@ -38,21 +39,77 @@ public partial class AudioRouting
         UpdateMeasurementDetails(pending);
     }
 
+    private async Task<MechanicalTestResult> RunMechanicalDiagnosticAsync(MechanicalTestRequest request, System.Threading.CancellationToken cancellationToken)
+    {
+        request.Validate();
+        CloseRoutingScope();
+        using var workflow = TryBeginRoutingWorkflow();
+        if (workflow == null) throw new InvalidOperationException("Thiết bị đang đo Line/Auto Test hoặc quy trình khác. Chờ hoàn tất trước khi phát tone.");
+        StopRoutingHeadroomMonitor();
+        var playback = SelectedPlaybackDevice ?? throw new InvalidOperationException("Chưa chọn ngõ phát.");
+        var recording = SelectedRecordingDevice ?? throw new InvalidOperationException("Chưa chọn ngõ thu.");
+        return await CaptureMechanicalDiagnosticAsync(request, playback, recording, cancellationToken);
+    }
+
+    // Caller owns the routing workflow: manual diagnostic or the whole Auto Test suite.
+    private async Task<MechanicalTestResult> CaptureMechanicalDiagnosticAsync(MechanicalTestRequest request,
+        NAudio.CoreAudioApi.MMDevice playback, NAudio.CoreAudioApi.MMDevice recording, System.Threading.CancellationToken cancellationToken)
+    {
+        request.Validate();
+        if (!_audioEngine.UseExclusivePlayback && AudioEngine.IsWindowsMonoAudioEnabled())
+            throw new InvalidOperationException("Tắt Windows Mono audio trước khi đo để giữ đúng kênh phát/thu.");
+        string route = $"Out: {playback.FriendlyName} / {(_audioEngine.PlaybackChannel is int outChannel ? (outChannel + 1).ToString() : "L+R")} · In: {recording.FriendlyName} / {(_audioEngine.RecordingChannel is int inChannel ? (inChannel + 1).ToString() : "Trộn")}";
+        try
+        {
+            var background = await _audioEngine.CaptureSilenceAsync(recording, null, .5, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            double noiseRms = Math.Sqrt(background.DutSamples.Sum(v => (double)v * v) / Math.Max(1, background.DutSamples.Length));
+            if (background.DutSamples.Length < background.DutSampleRate / 4 || !double.IsFinite(noiseRms)
+                || 20 * Math.Log10(Math.Max(1e-12, noiseRms)) > -55 || background.DutSamples.Any(v => Math.Abs(v) >= .05))
+                return MechanicalTestResult.Unavailable(request.Kind, "NỀN CHƯA ĐẠT", "Nền cao, thiếu dữ liệu hoặc có xung ngoại lai; chưa phát tone. Chờ yên rồi đo lại.") with { Acquisition = route };
+            float[] stimulus = MechanicalDiagnostics.GenerateTone(request, _audioEngine.PlaybackSampleRate);
+            float[] captured = await _audioEngine.PlayAndRecordAsync(playback, recording, SignalType.Sweep, request.FrequencyHz,
+                request.DurationSeconds, cancellationToken: cancellationToken, recordingChannel: _audioEngine.RecordingChannel, customSweepSamples: stimulus);
+            int rate = _audioEngine.RecordingSampleRate;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (rate != background.DutSampleRate) throw new InvalidOperationException("Định dạng ngõ thu đã đổi giữa lượt nền/tone; đo lại.");
+            var result = await Task.Run(() => MechanicalDiagnostics.Analyze(captured, background.DutSamples, rate, request), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result with { Acquisition = $"{route} · phát {_audioEngine.PlaybackSampleRate} Hz / thu {rate} Hz · {request.FrequencyHz:0.##} Hz / {request.LevelDbFs:0} dBFS peak / {request.DurationSeconds:0.0} s" };
+        }
+        finally { _audioEngine.StopAllAudio(); }
+    }
+
     private void UpdateMeasurementDetails(bool pending = false)
     {
-        var sweep = pending ? null : _reviewedAutoTestCase != null ? _reviewedAutoTestCase.ImpulseResult : _testRunner.LastSweepResult;
+        bool discarded = _discardCurrentMeasurementRequested && !pending;
+        if (!pending && !discarded && _reviewedAutoTestCase is { Config.SpeakerStage: "MicFrequencyShift" } frequencyShift)
+        {
+            TxtMeasurementSummary.Text = frequencyShift.ThdStatus;
+            if (_measurementDetailsWindow != null)
+            {
+                _measurementDetailsWindow.IsMeasurementPending = false;
+                _measurementDetailsWindow.Update("MIC IN · Di tần (FBX) · " + frequencyShift.StatusDisplay,
+                    frequencyShift.MeasurementValues, new Dictionary<double,double>(), null);
+            }
+            return;
+        }
+        var sweep = pending || discarded ? null : _reviewedAutoTestCase != null ? _reviewedAutoTestCase.ImpulseResult : _testRunner.LastSweepResult;
         if (TxtMeasurementSummary != null)
-            TxtMeasurementSummary.Text = pending ? "Đang đo…" : sweep == null ? "Chưa có sweep"
+            TxtMeasurementSummary.Text = discarded ? "Đã hủy / đã xóa kết quả." : pending ? "Đang đo…" : sweep == null ? "Chưa có sweep"
                 : $"RMS {sweep.SignalLevelDbFs:0.0} dBFS · SNR {sweep.EstimatedSnrDb:0.0} dB · delay {sweep.DirectArrivalMs:0.00} ms · "
-                    + (sweep.ImpulseEffects is { IsValid: true } e ? $"echo {(e.EchoDetected ? $"{e.EchoDelayMs:0} ms" : "chưa thấy")} · reverb {(e.ReverbDetected ? "có đuôi" : "chưa thấy")}" : "effect chưa đủ dữ liệu");
+                    + (sweep.ImpulseEffects is { IsValid: true } e ? e.Describe(_reviewedAutoTestCase?.Config.ImpulseEffects ?? _testRunner.ImpulseEffectsSettings) : "effect chưa đủ dữ liệu");
         if (_measurementDetailsWindow == null) return;
-        var measured = pending ? new Dictionary<double, double>() : _reviewedAutoTestCase != null
+        var measured = pending || discarded ? new Dictionary<double, double>() : _reviewedAutoTestCase != null
             ? _reviewedAutoTestCase.ResponseFrequencies.Zip(_reviewedAutoTestCase.ResponseLevels).ToDictionary(p => p.First, p => p.Second)
             : _freqs.Zip(_dbValues).ToDictionary(p => p.First, p => p.Second);
-        var rows = BuildMeasurementValues(sweep, pending);
-        string status = pending ? "Đang thu/phân tích — thông số chưa đo sẽ hiện Chưa đo."
+        var rows = discarded ? Array.Empty<MeasurementValue>() : BuildMeasurementValues(sweep, pending);
+        string status = discarded ? "Đã hủy / đã xóa kết quả — lượt này không được sử dụng."
+            : pending ? "Đang thu/phân tích — thông số chưa đo sẽ hiện Chưa đo."
             : $"{(_isFindingStandardReference ? "Line chuẩn" : "Line")} · {_referenceRouteKey} · {sweep?.Validity ?? "chưa có sweep"} · đáp tuyến 1/24 octave, 50 Hz–18 kHz";
+        _measurementDetailsWindow.IsMeasurementPending = pending && !discarded;
         _measurementDetailsWindow.Update(status, rows, measured, sweep);
+        _measurementDetailsWindow.UpdatePolarity(sweep != null && _polaritySnapshots.TryGetValue(sweep, out var polarity) ? polarity.Result : PolarityDiagnosticResult.Compare(sweep, "", null));
     }
 
     private IReadOnlyList<MeasurementValue> BuildAcquisitionValues()
@@ -62,6 +119,8 @@ public partial class AudioRouting
         Add("Route / bài đo", _referenceRouteKey);
         Add("Ngõ phát", SelectedPlaybackDevice?.FriendlyName ?? "Chưa chọn");
         Add("Ngõ thu", (ComboRecording.SelectedItem as DeviceItem)?.Device.FriendlyName ?? "Chưa chọn");
+        Add("Định dạng phát (thiết bị / Shared)", DescribeDeviceFormat(SelectedPlaybackDevice, playback: true));
+        Add("Định dạng thu (thiết bị / Shared)", DescribeDeviceFormat(SelectedRecordingDevice, playback: false));
         Add("Kênh phát / thu", $"{(_audioEngine.PlaybackChannel.HasValue ? (_audioEngine.PlaybackChannel.Value + 1).ToString() : "Cả hai")} / {(_audioEngine.RecordingChannel.HasValue ? (_audioEngine.RecordingChannel.Value + 1).ToString() : "Cả hai")}");
         Add("Sample rate phát", $"{_audioEngine.PlaybackSampleRate} Hz");
         Add("Chuẩn sample rate đối chiếu", "44100 Hz cho các thiết bị");
@@ -84,11 +143,13 @@ public partial class AudioRouting
         if (!pending && _reviewedAutoTestCase?.MeasurementValues is { Count: > 0 } saved) return saved;
         var rows = new List<MeasurementValue>(_lineAcquisitionValues ?? BuildAcquisitionValues());
         void Add(string name, string value) => rows.Add(new(name, value));
+        if (!pending && _currentRunningTestCase != null)
+            foreach (var result in _currentRunningTestCase.AdditionalResults) Add(result.Name + " — " + result.Status, result.Reason);
         static string N(double? value, string unit = "", string format = "0.000") => value is double v && double.IsFinite(v) ? v.ToString(format) + unit : "Chưa đo / không khả dụng";
         Add("Sample rate thu thực", sweep != null ? sweep.SampleRate + " Hz" : "Chưa mở thu");
         if (!pending && _testRunner.LastPreflightWarning.Length > 0) Add("Cảnh báo trước đo", _testRunner.LastPreflightWarning);
         if (sweep != null && sweep.SampleRate != StandardSampleRate)
-            Add("Cảnh báo sample rate bản thu", $"Lượt thu {sweep.SampleRate} Hz khác chuẩn 44100 Hz. Chưa đồng bộ chuẩn 44.1 kHz giữa các thiết bị.");
+            Add("Cảnh báo sample rate bản thu", $"Lượt thu được phân tích ở {sweep.SampleRate} Hz, khác chuẩn đối chiếu 44100 Hz. Default Format của thiết bị và định dạng xử lý Shared có thể khác nhau.");
         Add("RMS / Noise floor", N(sweep?.SignalLevelDbFs, " dBFS") + " / " + N(sweep?.NoiseFloorDbFs, " dBFS"));
         Add("RMS tín hiệu sweep phát", N(sweep?.ExcitationRmsDbFs, " dBFS"));
         Add("SNR", N(sweep?.EstimatedSnrDb, " dB"));
@@ -101,7 +162,9 @@ public partial class AudioRouting
         Add("Direct sample / hợp lệ", N(sweep?.DirectArrivalSample, " mẫu", "0") + " / " + (sweep?.HasPlausibleDirectArrival.ToString() ?? "Chưa đo"));
         Add("Tương quan sweep / độ nổi IR", N(sweep?.SweepCorrelation) + " / " + N(sweep?.ImpulsePeakToBackgroundDb, " dB"));
         Add("Clock / sai số fit / đã bù", N(sweep?.EstimatedClockDriftPpm, " ppm") + " / " + N(sweep?.ClockFitRmsSamples, " mẫu") + " / " + (sweep?.ClockDriftCorrectionApplied.ToString() ?? "Chưa đo"));
-        Add("IR trái / phải / FDW", N(sweep?.ImpulseWindowLeftMs, " ms") + " / " + N(sweep?.ImpulseWindowRightMs, " ms") + " / " + N(sweep?.FrequencyDependentWindowCycles, " chu kỳ"));
+        Add("IR trái / phải / FDW", N(sweep?.ImpulseWindowLeftMs, " ms") + " / " + N(sweep?.ImpulseWindowRightMs, " ms") + " / "
+            + (sweep == null ? "Chưa đo" : sweep.FrequencyDependentWindowing ? N(sweep.FrequencyDependentWindowCycles, " chu kỳ") : "Tắt")
+            + (sweep == null ? "" : " · " + sweep.ImpulseWindowKind));
         Add("Tần số thấp nhất tin cậy theo IR", N(sweep?.GatedMinimumFrequencyHz, " Hz"));
         Add("C50 / C80 / D50", N(sweep?.ClarityC50Db, " dB") + " / " + N(sweep?.ClarityC80Db, " dB") + " / " + N(sweep?.DefinitionD50Percent, "%"));
         Add("C20 / Centre time TS", N(sweep?.ImpulsePlot?.ClarityC20Db, " dB") + " / " + N(sweep?.ImpulsePlot?.CentreTimeSeconds, " s"));
@@ -109,16 +172,31 @@ public partial class AudioRouting
         foreach (var band in sweep?.OctaveBandRt60 ?? Array.Empty<BandRt60Result>()) Add($"Decay band {band.FrequencyHz:0} Hz", $"EDT {N(band.EdtSeconds, " s")} / T20 {N(band.T20Seconds, " s")} / T30 {N(band.T30Seconds, " s")} · hợp lệ {band.IsValid}");
         if (sweep?.ImpulseEffects is { } effects)
         {
-            Add("Chẩn đoán echo/reverb", effects.Describe());
+            var effectSettings = _reviewedAutoTestCase?.Config.ImpulseEffects ?? _testRunner.ImpulseEffectsSettings;
+            Add("Echo/reverb trong bản thu", effects.Describe(effectSettings));
+            if (effects.ReverbVerification is { } verification)
+            {
+                Add("Đối chứng reverb khô/ướt", verification.Summary);
+                foreach (var band in verification.Bands) Add($"Đuôi đối chứng {band.LowHz:0}–{band.HighHz:0} Hz",
+                    $"{band.DurationMs:0} ms · nổi nền {band.TailSnrDb:0.0} dB · chênh khô/ướt {band.WetDryDifferenceDb:0.0} dB · R² {band.RSquared:0.000}");
+            }
+            Add("Dải phân tích reverb", effects.ReverbAnalysisBands);
+            Add("Đuôi liên tục / độ nổi trên nền / độ phủ vùng đuôi", N(effects.DiffuseTailDurationMs, " ms") + " / "
+                + N(effects.DiffuseTailSnrDb, " dB") + " / " + effects.ActiveTailOccupancy.ToString("P0"));
+            Add("Năng lượng đuôi ngoài echo / độ phủ toàn cửa sổ", N(effects.DiffuseTailEnergyDb, " dBr") + " / " + effects.TailOccupancy.ToString("P0"));
             Add("IR noise / đuôi thu thực / bị cắt", N(effects.ImpulseNoiseDb, " dBr") + " / " + N(effects.CapturedTailSeconds, " s") + " / " + effects.TailTruncated);
             foreach (var tap in effects.EchoTaps) Add("Echo tap", N(tap.DelayMs, " ms") + " / " + N(tap.LevelDb, " dBr theo direct"));
-            if (_standardImpulseEffects != null) foreach (string note in _standardImpulseEffects.Compare(effects, _testRunner.ImpulseEffectsSettings)) Add("So effect với line chuẩn", note);
+            if (_standardImpulseEffects != null && _reviewedAutoTestCase?.Config.SpeakerStage == null)
+                foreach (string note in _standardImpulseEffects.Compare(effects, effectSettings)) Add("So effect với line chuẩn", note);
         }
         foreach (var point in pending ? new Dictionary<double, ToneQualityMetrics>() : _testRunner.LastToneQualities)
             Add($"Distortion {point.Key:0} Hz", $"f0 {N(point.Value.FundamentalFrequencyHz, " Hz")} / THD {N(point.Value.ThdPercent, "%")} / THD+N {N(point.Value.ThdNPercent, "%")} / SINAD {N(point.Value.SinadDb, " dB")} / SNR {N(point.Value.SnrDb, " dB")} / DC {N(point.Value.DcOffset)} · hợp lệ {point.Value.IsValid}");
         Add("THD+N / SINAD / IMD từ log-sweep", "Không suy ra từ sweep; chỉ hiển thị khi có phép đo tương ứng.");
         if (sweep?.RewDistortion is { } stats)
             Add("THD sweep trung bình / cực đại", N(stats.AverageThdPercent, "%") + " / " + N(stats.MaxThdPercent, "%") + " tại " + N(stats.MaxThdFrequencyHz, " Hz") + " · hài trội " + stats.DominantHarmonic);
+        if (sweep?.HighOrderHarmonics is { } highOrders)
+            Add("H10–H35 / Rub & Buzz", highOrders.Points.Count == 0 ? highOrders.Note
+                : $"ESS {highOrders.SweepSeconds:0.000} s · đủ băng thông H10–H35 đến f0 {highOrders.FullOrderMaximumFundamentalHz:0.#} Hz. Xem tab H10–H35; không tự kết luận lỗi loa.");
         if (!string.IsNullOrWhiteSpace(sweep?.Warning)) Add("Cảnh báo bản thu", sweep.Warning);
         foreach (var diagnostic in sweep?.Diagnostics ?? Array.Empty<MeasurementDiagnostic>()) Add(diagnostic.Severity + " · " + diagnostic.Code, diagnostic.Message + " " + diagnostic.Action);
         return rows;
@@ -170,6 +248,7 @@ public partial class AudioRouting
     {
         _rawStandardCurve = new Dictionary<double, double>();
         _standardImpulseEffects = null;
+        _standardPolarityReference = null;
         string path = Path.ChangeExtension(csvPath, ".json");
         if (!File.Exists(path)) return;
         try
@@ -191,6 +270,8 @@ public partial class AudioRouting
             _rawStandardCurve = curve;
             if (root.TryGetProperty("impulseEffectsReference", out var effects) && effects.ValueKind == JsonValueKind.Object)
                 _standardImpulseEffects = effects.Deserialize<ImpulseEffectReference>();
+            if (root.TryGetProperty("polarityReference", out var polarity) && polarity.ValueKind == JsonValueKind.Object)
+                _standardPolarityReference = polarity.Deserialize<SweepPolarityReference>();
         }
         catch (Exception ex) { AppendLog("Line gốc", "Không đọc được dữ liệu trước làm mượt: " + ex.Message); }
     }

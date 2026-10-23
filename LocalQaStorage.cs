@@ -111,7 +111,8 @@ public static class LocalQaStorage
     }
 
     private static bool IsGraphName(string name) => !string.IsNullOrWhiteSpace(name)
-        && name == Path.GetFileName(name) && name.StartsWith("FRA-", StringComparison.OrdinalIgnoreCase)
+        && name == Path.GetFileName(name) && (name.StartsWith("FRA-", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("-frequency-shift.png", StringComparison.OrdinalIgnoreCase))
         && name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     private static IEnumerable<string> FindMarkers(string root, string name)

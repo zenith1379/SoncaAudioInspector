@@ -9,7 +9,16 @@
     <Compile Remove=".artifacts\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
     <Compile Include="..\..\StandardAcousticMeasurement.cs" Link="StandardAcousticMeasurement.cs" />
+    <Compile Include="..\..\StandardAcousticMeasurement.HighOrder.cs" Link="StandardAcousticMeasurement.HighOrder.cs" />
+    <Compile Include="..\..\MechanicalDiagnostics.cs" Link="MechanicalDiagnostics.cs" />
+    <Compile Include="..\..\SignalDiagnostics.cs" Link="SignalDiagnostics.cs" />
+    <Compile Include="..\..\AdvancedAudioMeasurement.cs" Link="AdvancedAudioMeasurement.cs" />
+    <Compile Include="..\..\DspProcessor.cs" Link="DspProcessor.cs" />
+    <Compile Include="..\..\ProductionMeasurement.cs" Link="ProductionMeasurement.cs" />
+    <Compile Include="..\..\SweepFourier.cs" Link="SweepFourier.cs" />
     <Compile Include="..\..\ImpulseEffects.cs" Link="ImpulseEffects.cs" />
+    <Compile Include="..\..\ReverbDecayDiagnostics.cs" Link="ReverbDecayDiagnostics.cs" />
+    <Compile Include="..\..\ImpedanceMeasurement.cs" Link="ImpedanceMeasurement.cs" />
     <Compile Include="..\..\ImpulsePlotAnalysis.cs" Link="ImpulsePlotAnalysis.cs" />
     <Compile Include="..\..\ResponseSmoothing.cs" Link="ResponseSmoothing.cs" />
     <Compile Include="..\..\SweepDistortionSummary.cs" Link="SweepDistortionSummary.cs" />

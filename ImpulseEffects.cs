@@ -35,8 +35,8 @@ public sealed record EchoTap(double DelayMs, double LevelDb);
 public sealed record ImpulseEffectReference(bool EchoDetected, bool ReverbDetected, double? EchoDelayMs,
     double? EchoLevelDb, double DiffuseTailEnergyDb, double TailOccupancy, string SettingsKey)
 {
-    public static string Key(ImpulseEffectSettings settings) => System.Text.Json.JsonSerializer.Serialize(settings with { ExpectEcho = null, ExpectReverb = null });
-    public static ImpulseEffectReference? From(ImpulseEffectResult? result, ImpulseEffectSettings settings) => result is { IsValid: true, TailTruncated: false, Verdict: not "INCONCLUSIVE" }
+    public static string Key(ImpulseEffectSettings settings) => "diffuse-bands-v6:" + System.Text.Json.JsonSerializer.Serialize(settings with { ExpectEcho = null, ExpectReverb = null });
+    public static ImpulseEffectReference? From(ImpulseEffectResult? result, ImpulseEffectSettings settings) => result?.CanClassify(settings) == true
         ? new(result.EchoDetected, result.ReverbDetected, double.IsFinite(result.EchoDelayMs) ? result.EchoDelayMs : null,
             result.EchoTaps.Count > 0 ? result.EchoTaps.Max(t => t.LevelDb) : null,
             result.DiffuseTailEnergyDb, result.TailOccupancy, Key(settings)) : null;
@@ -56,7 +56,7 @@ public sealed record ImpulseEffectReference(bool EchoDetected, bool ReverbDetect
 
     public IReadOnlyList<string> Compare(ImpulseEffectResult current, ImpulseEffectSettings settings)
     {
-        if (!current.IsValid || current.Verdict == "INCONCLUSIVE" || current.TailTruncated || current.CapturedTailSeconds * 1000 < settings.TailEndMs + 100)
+        if (!current.CanClassify(settings))
             return new[] { "Chưa đủ dữ liệu để so echo/reverb với line chuẩn." };
         if (SettingsKey != Key(settings)) return new[] { "Cấu hình phân tích đuôi đã đổi; cần lấy lại mẫu chuẩn echo/reverb." };
         var notes = new List<string>();
@@ -82,14 +82,44 @@ public sealed record ImpulseEffectResult(
     double ImpulseNoiseDb, double CapturedTailSeconds, bool TailTruncated,
     string Verdict, IReadOnlyList<string> Findings)
 {
-    public string Describe()
+    public double DiffuseTailDurationMs { get; init; }
+    public double DiffuseTailSnrDb { get; init; } = double.NaN;
+    public double ActiveTailOccupancy { get; init; }
+    public string ReverbAnalysisBands { get; init; } = "";
+    public ReverbDecayResult? ReverbVerification { get; init; }
+
+    public bool CanClassify(ImpulseEffectSettings settings) => IsValid && !TailTruncated
+        && CapturedTailSeconds * 1000 >= Math.Max(settings.TailEndMs + 100,
+            2 * (settings.ExpectedEchoDelayMs ?? settings.MaximumEchoDelayMs) + 100)
+        && (EchoDetected || HasQuietImpulse(settings))
+        && (ReverbDetected || ReverbVerification?.IsValid == true || HasQuietImpulse(settings));
+
+    private bool HasQuietImpulse(ImpulseEffectSettings settings) => double.IsFinite(ImpulseNoiseDb)
+        && ImpulseNoiseDb <= Math.Min(-60, settings.MinimumEchoLevelDb - 6);
+
+    public string Describe(ImpulseEffectSettings? settings = null)
     {
-        static string Number(double value, string format) => double.IsFinite(value) ? value.ToString(format) : "N/A";
-        return $"Impulse — {Verdict}: echo {(EchoDetected ? $"{EchoDelayMs:0.0} ms, {EchoTaps.Count} đỉnh" : "chưa thấy chuỗi đỉnh lặp")}; "
-            + $"reverb {(ReverbDetected ? "có đuôi liên tục" : "chưa thấy đuôi liên tục")}; "
-            + $"E đuôi/direct {Number(LateEnergyDb, "0.0")} dB, E đuôi ngoài echo {Number(DiffuseTailEnergyDb, "0.0")} dB, "
-            + $"độ phủ đuôi {TailOccupancy:P0}, T60 đuôi {Number(TailDecay60Seconds, "0.00")} s (R² {Number(TailFitRSquared, "0.00")}). "
-            + string.Join(" ", Findings);
+        settings ??= new();
+        if (!IsValid) return "Echo/reverb chưa đo hợp lệ.";
+        var notes = new List<string>();
+        if (EchoDetected) notes.Add($"Có echo trong bản thu (lặp {EchoDelayMs:0.0} ms).");
+        if (ReverbDetected) notes.Add("Có reverb trong bản thu" + (double.IsFinite(TailDecay60Seconds)
+            ? $" (T60 đuôi ước tính {TailDecay60Seconds:0.00} s)."
+            : DiffuseTailDurationMs > 0 ? $" (đuôi liên tục {DiffuseTailDurationMs:0} ms)." : "."));
+        if (!EchoDetected || !ReverbDetected)
+        {
+            string missing = EchoDetected ? "Reverb" : ReverbDetected ? "Echo" : "Echo/reverb";
+            if (CanClassify(settings)) notes.Add($"Chưa phát hiện {missing.ToLowerInvariant()} trong bản thu.");
+            else if (!ReverbDetected && ReverbVerification is { IsValid: false } verification)
+                notes.Add("Reverb chưa xác định: " + verification.Summary
+                    + (verification.Attempts > 1 ? $" Đã thử {verification.Attempts} cặp khô/ướt." : "")
+                    + (verification.ProbeBands.Count > 0 ? " Lượt cuối đo từng dải: "
+                        + string.Join(", ", verification.ProbeBands.Select(b => $"{b.LowHz:0}–{b.HighHz:0} Hz {b.LevelDbFs:0.#} dBFS")) + "." : ""));
+            else notes.Add($"{missing} chưa xác định: " + (TailTruncated ? "đuôi thu bị cắt."
+                : CapturedTailSeconds * 1000 < Math.Max(settings.TailEndMs + 100, 2 * (settings.ExpectedEchoDelayMs ?? settings.MaximumEchoDelayMs) + 100)
+                    ? "đuôi thu quá ngắn." : "nền IR cao."));
+        }
+        return string.Join(" ", notes);
     }
 }
 
@@ -103,7 +133,7 @@ public static class ImpulseEffects
         ImpulseEffectResult Invalid(string reason) => new(false, false, false, double.NaN, Array.Empty<EchoTap>(),
             double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, 0, false, "INVALID", new[] { reason });
         if (!acquisitionValid || sampleRate < 8000 || directIndex < 0 || directIndex >= impulse.Count || impulse.Any(v => !double.IsFinite(v)))
-            return Invalid("Bản thu/impulse không hợp lệ; không kết luận mất echo/reverb.");
+            return Invalid("Bản thu/impulse không hợp lệ.");
         double duration = (impulse.Count - directIndex - 1) / (double)sampleRate;
         if (duration < .25) return Invalid("Đoạn thu sau direct quá ngắn.");
         int block = Math.Max(1, sampleRate / 1000); // 1 ms, preserves narrow echo peaks
@@ -183,7 +213,24 @@ public static class ImpulseEffects
         double lateDb = 10 * Math.Log10(Math.Max(1e-30, tailEnergy / Math.Max(1e-30, directEnergy)));
         double diffuseDb = 10 * Math.Log10(Math.Max(1e-30, diffuseEnergy / Math.Max(1e-30, directEnergy)));
         double occupancy = diffuseCount > 0 ? above / (double)diffuseCount : 0;
-        bool reverb = diffuseDb >= settings.MinimumDiffuseTailDb && occupancy >= settings.MinimumTailOccupancy;
+        // Deconvolution noise can be concentrated near the top of the sweep.
+        // A broadband noise floor then masks a clearly decaying midband tail.
+        // Require diffuse decay in two separate bands, each against its own
+        // measured background; the echo detector still uses the untouched IR.
+        double crossover = sampleRate >= 16000 ? 2000 : 1000;
+        double lowCut = crossover / 4, highCut = Math.Min(crossover * 4, sampleRate * .45);
+        var firstBand = BandEnvelope(impulse, sampleRate, directIndex, block, binMs, tailStart, tailEnd, taps,
+            lowCut, crossover, settings.MinimumTailOccupancy);
+        var secondBand = BandEnvelope(impulse, sampleRate, directIndex, block, binMs, tailStart, tailEnd, taps,
+            crossover, highCut, settings.MinimumTailOccupancy);
+        bool reverb = diffuseDb >= settings.MinimumDiffuseTailDb && firstBand.Detected && secondBand.Detected;
+        var envelope = new DiffuseEnvelope(reverb, reverb ? Math.Min(firstBand.DurationMs, secondBand.DurationMs) : 0,
+            Math.Min(firstBand.PeakSnrDb, secondBand.PeakSnrDb), Math.Min(firstBand.Occupancy, secondBand.Occupancy),
+            double.NaN, Math.Min(firstBand.RSquared, secondBand.RSquared));
+        if (!double.IsFinite(decay60) && envelope.Detected)
+        {
+            r2 = envelope.RSquared;
+        }
         double endingPower = powers.Skip(Math.Max(AtMs(10), count - AtMs(100))).Average();
         bool noisyTail = noiseDb > Math.Min(-60, settings.MinimumEchoLevelDb - 6);
         bool truncated = endingPower > Math.Max(directPeak * directPeak * 1e-6, noisePower * 4);
@@ -193,12 +240,122 @@ public static class ImpulseEffects
         if (settings.ExpectEcho == false && echo) findings.Add("ECHO_UNEXPECTED: thấy chuỗi echo khi cấu hình yêu cầu tắt.");
         if (settings.ExpectReverb == true && !reverb && longEnough && !noisyTail && !truncated) findings.Add("REVERB_MISSING: đuôi liên tục không đạt ngưỡng cấu hình.");
         if (settings.ExpectReverb == false && reverb) findings.Add("REVERB_UNEXPECTED: thấy đuôi liên tục khi cấu hình yêu cầu tắt.");
-        string verdict = findings.Count > 0 ? "FAIL" : !longEnough || truncated || noisyTail ? "INCONCLUSIVE"
+        bool uncertainAbsence = noisyTail && (!echo || !reverb);
+        string verdict = findings.Count > 0 ? "FAIL" : !longEnough || truncated || uncertainAbsence ? "INCONCLUSIVE"
             : settings.ExpectEcho.HasValue || settings.ExpectReverb.HasValue ? "PASS" : "OBSERVED";
-        if (!settings.ExpectEcho.HasValue && !settings.ExpectReverb.HasValue)
-            findings.Add("Chưa cấu hình yêu cầu effect; không kết luận mất hiệu ứng hoặc lỗi DSP từ phản xạ phòng.");
-        if (!longEnough || truncated) findings.Add("Đuôi thu chưa đủ để kết luận vắng hiệu ứng; tăng CaptureTailSeconds và giữ nguyên route/mức/DSP.");
-        if (noisyTail) findings.Add("Nền IR còn cao so với ngưỡng effect; chưa kết luận vắng echo/reverb. Cải thiện SNR và kiểm tra định dạng/clock đường thu.");
-        return new(true, echo, reverb, delayMs, taps, lateDb, diffuseDb, occupancy, decay60, r2, noiseDb, duration, truncated, verdict, findings);
+        if (!longEnough || truncated) findings.Add("Đuôi thu thiếu hoặc bị cắt; tăng thời gian thu đuôi.");
+        if (uncertainAbsence) findings.Add("Nền IR cao; các effect chưa phát hiện vẫn chưa xác định.");
+        return new(true, echo, reverb, delayMs, taps, lateDb, diffuseDb, occupancy, decay60, r2, noiseDb, duration, truncated, verdict, findings)
+        {
+            DiffuseTailDurationMs = envelope.DurationMs,
+            DiffuseTailSnrDb = envelope.PeakSnrDb,
+            ActiveTailOccupancy = envelope.Occupancy,
+            ReverbAnalysisBands = $"{lowCut:0}–{crossover:0} Hz + {crossover:0}–{highCut:0} Hz"
+        };
+    }
+
+    private sealed record DiffuseEnvelope(bool Detected, double DurationMs, double PeakSnrDb,
+        double Occupancy, double Decay60, double RSquared);
+
+    private static DiffuseEnvelope BandEnvelope(IReadOnlyList<double> impulse, int sampleRate, int directIndex,
+        int block, double binMs, int start, int end, IReadOnlyList<EchoTap> taps, double lowHz, double highHz, double occupancy)
+    {
+        double[] filtered = impulse.ToArray();
+        // Fourth-order Butterworth high/low pass, applied to the full pre-roll
+        // as well. Causal group delay is a few ms, within the excluded echo area.
+        foreach (bool highPass in new[] { true, false })
+        foreach (double q in new[] { .541196100146197, 1.306562964876377 })
+        {
+            double omega = 2 * Math.PI * (highPass ? lowHz : highHz) / sampleRate;
+            double cos = Math.Cos(omega), alpha = Math.Sin(omega) / (2 * q), a0 = 1 + alpha;
+            double b0 = (highPass ? 1 + cos : 1 - cos) / (2 * a0);
+            double b1 = (highPass ? -(1 + cos) : 1 - cos) / a0;
+            double a1 = -2 * cos / a0, a2 = (1 - alpha) / a0;
+            double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+            for (int i = 0; i < filtered.Length; i++)
+            {
+                double x = filtered[i], y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+                filtered[i] = y; x2 = x1; x1 = x; y2 = y1; y1 = y;
+            }
+        }
+        int count = (filtered.Length - directIndex) / block;
+        var powers = new double[count];
+        for (int i = 0; i < count; i++)
+        for (int j = 0; j < block; j++)
+        {
+            double value = filtered[directIndex + i * block + j];
+            powers[i] += value * value / block;
+        }
+        double[] background = powers.Skip(Math.Max(10, count * 4 / 5)).Order().ToArray();
+        double noise = background.Length > 0 ? background[background.Length / 2] : 0;
+        var envelope = AnalyzeDiffuseEnvelope(powers, noise, binMs, start, end, taps, occupancy);
+        if (!envelope.Detected) return envelope;
+        // A decaying single resonance leaks into both filters near their shared
+        // edge. A diffuse tail has noise-like local sample statistics, whereas
+        // a sinusoidal ring has kurtosis about 1.5. Assess only strong windows.
+        int width = Math.Max(1, (int)Math.Ceiling(20 / binMs));
+        int strong = 0, diffuse = 0;
+        for (int i = start; i + width < end; i += width)
+        {
+            if (taps.Any(t => t.DelayMs >= i * binMs - 15 && t.DelayMs <= (i + width) * binMs + 15)) continue;
+            int first = directIndex + i * block, length = width * block;
+            double sum2 = 0, sum4 = 0;
+            for (int j = first; j < first + length; j++)
+            {
+                double square = filtered[j] * filtered[j]; sum2 += square; sum4 += square * square;
+            }
+            double power = sum2 / length;
+            if (power <= Math.Max(1e-30, noise * 10)) continue;
+            strong++;
+            if (sum4 / length / (power * power) >= 2) diffuse++;
+        }
+        bool isDiffuse = strong >= 4 && diffuse / (double)strong >= occupancy;
+        return isDiffuse ? envelope : envelope with { Detected = false, DurationMs = 0 };
+    }
+
+    private static DiffuseEnvelope AnalyzeDiffuseEnvelope(double[] powers, double noisePower, double binMs,
+        int start, int end, IReadOnlyList<EchoTap> taps, double minimumOccupancy)
+    {
+        var windows = new List<(double Time, double SnrDb)>();
+        int width = Math.Max(1, (int)Math.Ceiling(20 / binMs));
+        for (int i = start; i + width < end; i += width)
+        {
+            if (taps.Any(t => t.DelayMs >= i * binMs - 15 && t.DelayMs <= (i + width) * binMs + 15)) continue;
+            // The median rejects isolated impulse/ringing peaks. Adjacent echo
+            // windows are removed before assessing continuity and decay.
+            double[] samples = powers.Skip(i).Take(width).Order().ToArray();
+            double power = samples[samples.Length / 2];
+            windows.Add(((i + width * .5) * binMs / 1000,
+                10 * Math.Log10(Math.Max(1e-30, power / Math.Max(1e-30, noisePower)))));
+        }
+        var none = new DiffuseEnvelope(false, 0, double.NaN, 0, double.NaN, double.NaN);
+        if (windows.Count < 6) return none;
+        double[] smooth = windows.Select((_, i) =>
+        {
+            double[] local = windows.Skip(Math.Max(0, i - 1)).Take(i == 0 ? 2 : 3).Select(w => w.SnrDb).Order().ToArray();
+            return (local[(local.Length - 1) / 2] + local[local.Length / 2]) * .5;
+        }).ToArray();
+        int peak = 0;
+        for (int i = 1; i < smooth.Length; i++) if (smooth[i] > smooth[peak]) peak = i;
+        // Require a broad tail >= 10 dB above the in-band background. A single
+        // 20 ms dropout may occur; >= 60% (configurable) must stay >= 3 dB.
+        if (smooth[peak] < 10) return none with { PeakSnrDb = smooth[peak] };
+        int last = peak;
+        while (last + 1 < windows.Count && (smooth[last + 1] >= 3 || last + 2 < windows.Count && smooth[last + 2] >= 3)) last++;
+        var fit = Enumerable.Range(peak, last - peak + 1).Select(i =>
+            (windows[i].Time, Db: 10 * Math.Log10(Math.Max(1e-30, Math.Pow(10, smooth[i] / 10) - 1)))).ToArray();
+        double span = fit[^1].Time - fit[0].Time;
+        double occupancy = windows.Skip(peak).Take(fit.Length).Count(w => w.SnrDb >= 3) / (double)fit.Length;
+        if (fit.Length < 6 || span < .10 || occupancy < minimumOccupancy)
+            return none with { PeakSnrDb = smooth[peak], Occupancy = occupancy };
+        double mx = fit.Average(w => w.Time), my = fit.Average(w => w.Db);
+        double slope = fit.Sum(w => (w.Time - mx) * (w.Db - my)) / Math.Max(1e-30, fit.Sum(w => Math.Pow(w.Time - mx, 2)));
+        double total = fit.Sum(w => Math.Pow(w.Db - my, 2));
+        double r2 = 1 - fit.Sum(w => Math.Pow(w.Db - my - slope * (w.Time - mx), 2)) / Math.Max(1e-30, total);
+        double drop = -slope * span;
+        bool detected = slope < 0 && drop >= 3 && r2 >= .70;
+        // Presence needs less dynamic range than an extrapolated 60 dB decay.
+        double t60 = detected && drop >= 10 && r2 >= .85 && span >= .15 ? -60 / slope : double.NaN;
+        return new(detected, detected ? span * 1000 : 0, smooth[peak], occupancy, t60, r2);
     }
 }

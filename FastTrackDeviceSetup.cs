@@ -104,9 +104,9 @@ public static class FastTrackDeviceSetup
         if (device.DataFlow != DataFlow.Capture || !IsFastTrack(device)) return false;
         try
         {
-            if (ReadMixSampleRate(device.ID) == RecordingSampleRate) return true;
+            if (AudioSampleRateSetup.ReadDefaultFormat(device.ID).SampleRate == RecordingSampleRate) return true;
             WindowsEndpointPolicy.SetSampleRate(device.ID, RecordingSampleRate);
-            int actual = ReadMixSampleRate(device.ID);
+            int actual = AudioSampleRateSetup.ReadDefaultFormat(device.ID).SampleRate;
             if (actual != RecordingSampleRate)
                 throw new InvalidOperationException($"Windows vẫn báo {actual.ToString(CultureInfo.InvariantCulture)} Hz.");
             message = "Đã đổi ngõ thu FastTrack sang 44,1 kHz.";
@@ -155,7 +155,7 @@ internal static class WindowsEndpointPolicy
             ChangeRate(endpoint, sampleRate);
             ChangeRate(mix, sampleRate);
             Marshal.ThrowExceptionForHR(policy.SetDeviceFormat(endpointId, endpoint, mix));
-            if (FastTrackDeviceSetup.ReadMixSampleRate(endpointId) != sampleRate)
+            if (AudioSampleRateSetup.ReadDefaultFormat(endpointId).SampleRate != sampleRate)
                 throw new InvalidOperationException("Không đọc lại được định dạng thu yêu cầu.");
         }
         catch

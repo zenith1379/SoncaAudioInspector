@@ -19,6 +19,9 @@ public sealed record SweepDistortionSummary(
     public double StartFrequencyHz { get; init; } = double.NaN;
     public double EndFrequencyHz { get; init; } = double.NaN;
 
+    // Acceptance limits do not invent an SNR gate or suppress measured harmonics.
+    public SweepDistortionSummary WithNoiseAssessment(double acquisitionSnrDb, double limitPercent) => this;
+
     public static SweepDistortionSummary AggregateSweep(
         IReadOnlyList<SweepHarmonicPoint> sweepHarmonics,
         double signalLevelDbFs,

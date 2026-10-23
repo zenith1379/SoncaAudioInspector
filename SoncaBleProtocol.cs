@@ -33,9 +33,9 @@ public static class SoncaBleProtocol
     public const byte ChannelEffect = 0x03;
 
     // Fader/mute constants below refer to the verified C360 profile. Legacy
-    // input/tone/FBX/PEQ addresses are unverified and rejected by the manager.
+    // tone/FBX/PEQ addresses are unverified and rejected by the manager.
     public const ushort RegMasterVol = SoncaBleMixerProfile.MasterVolume;
-    public const ushort RegInputSource = 0x3048; // 0: BT, 1: USB, 2: Optical, 3: HDMI, 4: Line IN, 5: Karaoke
+    public const ushort RegInputSource = SoncaBleMixerProfile.InputSource;
     public const ushort RegMasterMute = SoncaBleMixerProfile.MasterMute;
     public const ushort RegBassBoost = 0x304A;   // 0: Off, 1: On
     public const ushort RegEnhancer = 0x304B;    // 0: Off, 1: On
@@ -161,10 +161,11 @@ public static class SoncaBleProtocol
     public static byte[] BuildReadMixerPacket() => BuildPacket(CmdGetParam, new byte[] { 0x62, 0x09, 0x00, 0x01 });
 
     /// <summary>
-    /// Chuyển đổi ngõ vào phần cứng (0: Bluetooth, 1: USB/MP3, 2: Optical, 3: Line IN, 4: Guitar).
+    /// Chuyển nguồn nhạc (0: Bluetooth, 1: USB nhạc, 2: Optical, 3: HDMI, 4: Line IN, 5: SD/TF trên C360).
     /// </summary>
     public static byte[] BuildInputSourcePacket(byte inputIndex)
     {
+        if (inputIndex > 5) throw new ArgumentOutOfRangeException(nameof(inputIndex));
         return BuildParamPacket(ChannelMusic, RegInputSource, inputIndex);
     }
 

@@ -298,7 +298,7 @@ public partial class AudioRouting : UserControl
 			if (IsLoaded && DateTime.UtcNow - _lastSampleRateWarningPollUtc >= TimeSpan.FromSeconds(2))
 			{
 				_lastSampleRateWarningPollUtc = DateTime.UtcNow;
-				UpdateSampleRateWarning();
+				RefreshSelectedDeviceFormats();
 			}
 			if (_routingMeterBuffer.TryRead(out double peak, out double rms, out bool clipped, out bool invalid))
 			{
@@ -329,6 +329,7 @@ public partial class AudioRouting : UserControl
 	{
 		_audioEngine = audioEngine;
 		_testRunner = testRunner;
+		BtnStart.IsEnabledChanged += (_, _) => RefreshMicrophoneCalibrationSelection();
 		_testRunner.OnRealTimeRecordedSamples += delegate(float[] samples)
 		{
 			_routingMeterBuffer.Push(samples, System.Threading.Volatile.Read(ref _routingMeterSession));
@@ -402,7 +403,7 @@ public partial class AudioRouting : UserControl
 									if (finitePoint != null) thdVal = finitePoint.ThdPercent;
 								}
 
-								if (double.IsFinite(thdVal))
+                                    if (testStep3.Status != "Invalid" && !_testRunner.ThdAcquisitionInvalid && double.IsFinite(thdVal))
 								{
 									string verdict = (testStep3.Status == "Pass") ? "ĐẠT" : ((testStep3.Status == "Fail") ? (IsFirstAutoTestAttempt && AutoTestAcquisitionInvalid ? "CHƯA ỔN ĐỊNH" : "KHÔNG ĐẠT") : "tham khảo");
 									_currentRunningTestCase.ThdStatus = $"{thdVal:F3}% ({verdict})";
@@ -453,20 +454,22 @@ public partial class AudioRouting : UserControl
 		};
 		_testRunner.OnUnsmoothedResponseReady += raw => Dispatcher.Invoke(() =>
 		{
-			_rawResponse = new Dictionary<double, double>(raw);
+			if (!_discardCurrentMeasurementRequested) _rawResponse = new Dictionary<double, double>(raw);
 		});
 		_testRunner.OnSweepResultReady += result => Dispatcher.Invoke(() =>
 		{
+			if (_discardCurrentMeasurementRequested) return;
+			RememberSweepPolarity(result);
 			UpdateSampleRateWarning(result.SampleRate);
 			UpdateMeasurementDetails();
 		});
 		_testRunner.OnOneKilohertzLevelMeasured += levelDbFs =>
 		{
-			Dispatcher.Invoke(() => UpdateOneKilohertzLevel(levelDbFs));
+			Dispatcher.Invoke(() => { if (!_discardCurrentMeasurementRequested) UpdateOneKilohertzLevel(levelDbFs); });
 		};
 		_testRunner.OnOneKilohertzToneMeasured += (levelDbFs, peakSample) =>
 		{
-			Dispatcher.Invoke(() => UpdateOneKilohertzToneLevel(levelDbFs, peakSample));
+			Dispatcher.Invoke(() => { if (!_discardCurrentMeasurementRequested) UpdateOneKilohertzToneLevel(levelDbFs, peakSample); });
 		};
 		_testRunner.OnThdSpectrumReady += delegate(double toneFrequency, double[] frequencies, double[] magnitudes, double thdPercent, bool validated)
 		{
@@ -503,9 +506,9 @@ public partial class AudioRouting : UserControl
 		{
 			((DispatcherObject)this).Dispatcher.Invoke((Action)delegate
 			{
-				UpdateMeasurementDetails();
 				if (!_discardCurrentMeasurementRequested)
 				{
+					UpdateMeasurementDetails();
 					if (_isExecutingAutoSuite && _currentRunningTestCase != null)
 					{
 						_currentTestSuccess = Success;
@@ -698,14 +701,14 @@ public partial class AudioRouting : UserControl
 					ChkSendToServer.IsChecked = appConfig.SendToServer;
 					_isApplyingMeasurementMethod = true;
 					ChkUseLogSweep.IsChecked = appConfig.UseLogSweepFrequencyResponse;
-					ChkNormalizeOneKilohertz.IsChecked = appConfig.NormalizeFrequencyResponseToOneKilohertz;
+					appConfig.NormalizeFrequencyResponseToOneKilohertz = false;
 					ChkDistortionCalibration.IsChecked = appConfig.ApplyDistortionCalibration;
 					ChkDistortionHarmonicReference.IsChecked = appConfig.UseHarmonicFrequencyAsDistortionReference;
 					SelectLogSweepDuration(appConfig.LogSweepDurationSeconds);
 					SelectMultitoneDuration(appConfig.MultitoneDurationSeconds);
 					_isApplyingMeasurementMethod = false;
 					_testRunner.UseLogSweepFrequencyResponse = appConfig.UseLogSweepFrequencyResponse;
-					_testRunner.NormalizeFrequencyResponseToOneKilohertz = appConfig.NormalizeFrequencyResponseToOneKilohertz;
+					_testRunner.NormalizeFrequencyResponseToOneKilohertz = false;
 					_testRunner.LogSweepDurationSeconds = GetSelectedLogSweepDuration();
 					_testRunner.MultitoneDurationSeconds = GetSelectedMultitoneDuration();
 					_lastSyncedSendToServer = appConfig.SendToServer;
@@ -739,7 +742,7 @@ public partial class AudioRouting : UserControl
 		{
 			_isApplyingMeasurementMethod = false;
 			_audioEngine.PlaybackSampleRate = GetSelectedPlaybackSampleRate();
-			_testRunner.NormalizeFrequencyResponseToOneKilohertz = ChkNormalizeOneKilohertz.IsChecked == true;
+			_testRunner.NormalizeFrequencyResponseToOneKilohertz = false;
 			_testRunner.ApplyDistortionCalibration = ChkDistortionCalibration.IsChecked == true;
 			_testRunner.UseHarmonicFrequencyAsDistortionReference = ChkDistortionHarmonicReference.IsChecked == true;
 			_isConfigLoaded = true;
@@ -764,6 +767,7 @@ public partial class AudioRouting : UserControl
 
 	public void ClearModelSelection()
 	{
+		_reviewedAutoTestCase = null;
 		_activeInOutConfig = null;
 		_appliedTestConfig = null;
 		_autoTestResumeSession = null;
@@ -781,22 +785,6 @@ public partial class AudioRouting : UserControl
 		_testRunner.ApplyDistortionCalibration = ChkDistortionCalibration.IsChecked == true;
 		_testRunner.UseHarmonicFrequencyAsDistortionReference = ChkDistortionHarmonicReference.IsChecked == true;
 		SaveConfig();
-	}
-
-	private void NormalizeOneKilohertz_Changed(object sender, RoutedEventArgs e)
-	{
-		if (_testRunner == null || !_isConfigLoaded) return;
-		_testRunner.NormalizeFrequencyResponseToOneKilohertz = ChkNormalizeOneKilohertz.IsChecked == true;
-		_freqs.Clear();
-		_dbValues.Clear();
-		_rawResponse = new Dictionary<double, double>();
-		_sessionLineFrequencies = Array.Empty<double>();
-		_sessionLineValues = Array.Empty<double>();
-		BtnSaveStandard.IsEnabled = false;
-		TxtOneKilohertzLevel.Text = "Mức thu 1 kHz: chưa đo";
-		SaveConfig();
-		CheckAndLoadStandardDevice();
-		InitCharts();
 	}
 
 	private void UpdateOneKilohertzLevel(double levelDbFs)
@@ -1016,11 +1004,9 @@ public partial class AudioRouting : UserControl
 		}
 		try
 		{
-			using AudioClient formatClient = device.AudioClient;
-			WaveFormat mixFormat = formatClient.MixFormat;
-			string value = ((double)mixFormat.SampleRate / 1000.0).ToString("0.#", CultureInfo.InvariantCulture);
-			string value2 = ((!(mixFormat is WaveFormatExtensible waveFormatExtensible)) ? ((mixFormat.Encoding == WaveFormatEncoding.IeeeFloat) ? "Float" : "PCM") : ((waveFormatExtensible.SubFormat == new Guid("00000003-0000-0010-8000-00aa00389b71")) ? "Float" : "PCM"));
-				return playback ? $"Ngõ phát: {value} kHz · {mixFormat.BitsPerSample}-bit {value2} · {mixFormat.Channels} kênh" : $"Ngõ thu: {value} kHz · {mixFormat.BitsPerSample}-bit {value2} · {mixFormat.Channels} kênh";
+			WaveFormat defaultFormat = AudioSampleRateSetup.ReadDefaultFormat(device.ID);
+			WaveFormat mixFormat = ReadEndpointFormat(device)!;
+			return DescribeAudioFormats(defaultFormat, mixFormat, playback);
 		}
 		catch (Exception ex)
 		{
@@ -1028,7 +1014,7 @@ public partial class AudioRouting : UserControl
 		}
 	}
 
-	private void UpdateSelectedDeviceFormats()
+	private void RefreshSelectedDeviceFormats()
 	{
 		if (TxtPlaybackFormat != null)
 		{
@@ -1038,9 +1024,15 @@ public partial class AudioRouting : UserControl
 		{
 			TxtRecordingFormat.Text = DescribeDeviceFormat(SelectedRecordingDevice, playback: false);
 		}
+		UpdateSampleRateWarning();
+	}
+
+	private void UpdateSelectedDeviceFormats()
+	{
+        RefreshMicrophoneCalibrationSelection();
+		RefreshSelectedDeviceFormats();
 		UpdateChannelSelectorAvailability();
 		SyncChannelSelectionsFromEngine();
-		UpdateSampleRateWarning();
 	}
 
 	private static int GetDeviceChannelCount(MMDevice? device)
@@ -1119,7 +1111,7 @@ public partial class AudioRouting : UserControl
 			appConfig.LastSerialNumber = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? "";
 			appConfig.SendToServer = ChkSendToServer.IsChecked == true;
 			appConfig.UseLogSweepFrequencyResponse = ChkUseLogSweep.IsChecked == true;
-			appConfig.NormalizeFrequencyResponseToOneKilohertz = ChkNormalizeOneKilohertz.IsChecked == true;
+			appConfig.NormalizeFrequencyResponseToOneKilohertz = false;
 			appConfig.ApplyDistortionCalibration = ChkDistortionCalibration.IsChecked == true;
 			appConfig.UseHarmonicFrequencyAsDistortionReference = ChkDistortionHarmonicReference.IsChecked == true;
 			appConfig.LogSweepDurationSeconds = GetSelectedLogSweepDuration();
@@ -1302,6 +1294,7 @@ public partial class AudioRouting : UserControl
 		}
 		ListAutoTestCases.ItemsSource = null;
 		ListAutoTestCases.ItemsSource = _autoTestCases;
+		if (_autoTestCases.FirstOrDefault()?.Config is { } firstTest) ApplyTestCaseConfig(firstTest);
 		if (_isFreqExpanded || _isThdExpanded)
 		{
 			_savedAutoTestVisibility = Visibility.Visible;
@@ -1322,6 +1315,7 @@ public partial class AudioRouting : UserControl
 			missingMessage = "Audio Routing chưa sẵn sàng.";
 			return false;
 		}
+		if (C360ModelDefinition.Matches(inOutConfig)) return CheckC360ModelDevices(inOutConfig, out missingMessage);
 		Dictionary<string, string> dictionary = inOutConfig?.Devices?.Input ?? new Dictionary<string, string>();
 		Dictionary<string, string> dictionary2 = inOutConfig?.Devices?.Output ?? new Dictionary<string, string>();
 		using var playbackDevices = new DeviceEnumerationLease(_audioEngine.GetPlaybackDevices());
@@ -1428,6 +1422,8 @@ public partial class AudioRouting : UserControl
 
 	private void ClearThdPlots()
 	{
+		if (_reviewedAutoTestCase == null && TxtQualityChartHeading != null && PanelThdInspection != null)
+		{ TxtQualityChartHeading.Text = "DISTORTION"; PanelThdInspection.Visibility = Visibility.Visible; }
 		WpfPlot[] thdPlots = GetThdPlots();
 		for (int i = 0; i < thdPlots.Length; i++)
 		{
@@ -2047,6 +2043,7 @@ public partial class AudioRouting : UserControl
 
 	private void ApplyFrequencyChartView(bool fitVerticalData)
 	{
+		if (_reviewedAutoTestCase is { Config.SpeakerStage: "MicFrequencyShift" } shift) { ShowC360FrequencyShiftPlot(shift); return; }
 		try
 		{
 			double left = Math.Log10(_showUnsmoothedResponse ? 19.5 : 49.0);
@@ -2253,6 +2250,8 @@ public partial class AudioRouting : UserControl
 
 	private void UpdateFreqResponseChart()
 	{
+		if (_reviewedAutoTestCase is { Config.SpeakerStage: "MicFrequencyShift" } shift) { ShowC360FrequencyShiftPlot(shift); return; }
+		TxtFrequencyChartHeading.Text = "ĐÁP TUYẾN 1/24 OCTAVE · 50 Hz–18 kHz";
 		if (_suppressChartUpdates)
 		{
 			return;
@@ -2577,8 +2576,9 @@ public partial class AudioRouting : UserControl
 			ToneQualityMetrics? measuredTone = _testRunner.GetToneQualityAtFrequency(_selectedThdInspectFrequencyHz);
 			if (measuredTone != null && double.IsFinite(measuredTone.ThdPercent))
 			{
-				string thdQualifier = (_testRunner.ThdAcquisitionInvalid || !measuredTone.IsValid) ? " (tham khảo)" : "";
-				TxtThdStatus.Text = $"{_selectedThdInspectFrequencyHz:F0} Hz · THD {measuredTone.ThdPercent:F3}%{thdQualifier}";
+				TxtThdStatus.Text = (_testRunner.ThdAcquisitionInvalid || !measuredTone.IsValid)
+					? $"{_selectedThdInspectFrequencyHz:F0} Hz · THD chưa xác định — cần đo lại"
+					: $"{_selectedThdInspectFrequencyHz:F0} Hz · THD {measuredTone.ThdPercent:F3}%";
 				TxtThdStatus.ToolTip = _testRunner.Steps.ElementAtOrDefault(2)?.Details;
 			}
 			return;
@@ -2593,6 +2593,7 @@ public partial class AudioRouting : UserControl
 
 	private void UpdateThdInspection(double frequencyHz)
 	{
+		if (_reviewedAutoTestCase is { Config.SpeakerStage: not null } electronic) { ShowC360Review(electronic, frequencyHz); return; }
 		double num = TxtThdLimit == null ? 0.5 : ParseDoubleSafe(TxtThdLimit.Text, 0.5);
 		if (_testRunner?.LastSweepResult != null && _testRunner.GetToneQualityAtFrequency(frequencyHz) == null)
 		{
@@ -2606,10 +2607,11 @@ public partial class AudioRouting : UserControl
 				return;
 			}
 			ToneQualityMetrics toneQualityAtFrequency = _testRunner.GetToneQualityAtFrequency(frequencyHz);
-			if (toneQualityAtFrequency != null && !double.IsFinite(toneQualityAtFrequency.ThdPercent))
+			if (toneQualityAtFrequency != null && (!toneQualityAtFrequency.IsValid || !double.IsFinite(toneQualityAtFrequency.ThdPercent)))
 			{
 				TxtSweepDistortionMetrics.Text = _testRunner.Steps.ElementAtOrDefault(2)?.Details ?? "Bản thu THD không hợp lệ.";
 				TxtThdVerdictBadge.Text = "THD KHÔNG HỢP LỆ";
+				PlotThdFft1k.Plot.Clear(); PlotThdFft1k.Refresh();
 				BorderThdVerdictBadge.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(66, 52, 8));
 				BorderThdVerdictBadge.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21));
 				TxtThdVerdictBadge.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21));
@@ -2625,7 +2627,8 @@ public partial class AudioRouting : UserControl
 				StringBuilder.AppendInterpolatedStringHandler handler = new StringBuilder.AppendInterpolatedStringHandler(37, 1, stringBuilder2);
 				handler.AppendLiteral("Tại tần số cơ bản: ");
 				handler.AppendFormatted(toneQualityAtFrequency.FundamentalFrequencyHz, "F1");
-				handler.AppendLiteral(" Hz (Tone rời rạc)");
+					handler.AppendLiteral(toneQualityAtFrequency.AnalysisSource == "LOG_SWEEP_FDW"
+						? " Hz (Log sweep · cửa sổ hài theo tần số)" : " Hz (Tone rời rạc)");
 				stringBuilder3.AppendLine(ref handler);
 				stringBuilder.AppendLine();
 				stringBuilder2 = stringBuilder;
@@ -2721,18 +2724,22 @@ public partial class AudioRouting : UserControl
 		}
 	}
 
-	private void UpdateSweepDistortionMetrics(SweepDistortionSummary summary)
+	private void UpdateSweepDistortionMetrics(SweepDistortionSummary summary) => UpdateSweepDistortionMetricsWithLimit(summary, null, false);
+
+	private void UpdateSweepDistortionMetricsWithLimit(SweepDistortionSummary summary, double? limitOverride, bool finalVerdict)
 	{
-		double num = TxtThdLimit == null ? 0.5 : ParseDoubleSafe(TxtThdLimit.Text, 0.5);
+		double num = limitOverride ?? (TxtThdLimit == null ? 0.5 : ParseDoubleSafe(TxtThdLimit.Text, 0.5));
+		bool firstAttempt = !finalVerdict && IsFirstAutoTestAttempt;
+		if (!summary.IsValid) TxtThdStatus.Text = "THD chưa xác định — cần đo lại";
 		TxtSweepDistortionMetrics.Text = FormatSweepDistortionMetrics(summary, num);
-		if (IsFirstAutoTestAttempt) TxtSweepDistortionMetrics.Text = TxtSweepDistortionMetrics.Text.Replace("FAIL", "CẦN ĐO LẠI").Replace("KHÔNG ĐẠT", "CHƯA ỔN ĐỊNH");
+		if (firstAttempt) TxtSweepDistortionMetrics.Text = TxtSweepDistortionMetrics.Text.Replace("FAIL", "CẦN ĐO LẠI").Replace("KHÔNG ĐẠT", "CHƯA ỔN ĐỊNH");
 		bool flag = summary.IsValid && double.IsFinite(summary.ThdPercent) && summary.ThdPercent <= num;
 		TxtSweepDistortionMetrics.Foreground = (summary.IsValid ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(228, 228, 231)) : new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21)));
 		if (double.IsFinite(summary.ThdPercent))
 		{
 			if (!summary.IsValid)
 			{
-				TxtThdVerdictBadge.Text = $"{summary.ThdPercent:F3}% (THAM KHẢO)";
+				TxtThdVerdictBadge.Text = "THD CHƯA XÁC ĐỊNH";
 				BorderThdVerdictBadge.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(66, 52, 8));
 				BorderThdVerdictBadge.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21));
 				TxtThdVerdictBadge.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21));
@@ -2746,16 +2753,18 @@ public partial class AudioRouting : UserControl
 			}
 			else
 			{
-				TxtThdVerdictBadge.Text = $"{summary.ThdPercent:F3}% ({(IsFirstAutoTestAttempt ? "CẦN ĐO LẠI" : "FAIL")})";
+				TxtThdVerdictBadge.Text = $"{summary.ThdPercent:F3}% ({(firstAttempt ? "CẦN ĐO LẠI" : "FAIL")})";
 				BorderThdVerdictBadge.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(69, 10, 10));
 				BorderThdVerdictBadge.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68));
 				TxtThdVerdictBadge.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(248, 113, 113));
 			}
-			PlotHarmonicBars(summary);
+			if (summary.IsValid) PlotHarmonicBars(summary);
+			else { PlotThdFft1k.Plot.Clear(); PlotThdFft1k.Refresh(); }
 		}
 		else
 		{
 			TxtThdVerdictBadge.Text = "THD KHÔNG HỢP LỆ";
+			PlotThdFft1k.Plot.Clear(); PlotThdFft1k.Refresh();
 			BorderThdVerdictBadge.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(28, 25, 23));
 			BorderThdVerdictBadge.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 53, 15));
 			TxtThdVerdictBadge.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(251, 191, 36));
@@ -2792,6 +2801,8 @@ public partial class AudioRouting : UserControl
 
 	private static string FormatSweepDistortionMetrics(SweepDistortionSummary summary, double limit = 0.5)
 	{
+		if (!summary.IsValid)
+			return $"THD chưa xác định — bản thu chưa đủ điều kiện.\n{summary.Status.Replace("THD thô chỉ để tham khảo; ", "")}";
 		StringBuilder stringBuilder = new StringBuilder();
 		stringBuilder.AppendLine(summary.IsSweepWide ? $"Toàn Log-Sweep: {summary.StartFrequencyHz:0}-{summary.EndFrequencyHz:0} Hz — {summary.FrequencyPointCount} điểm" : $"Tại tần số cơ bản: {summary.ReferenceFrequencyHz:0} Hz (Tách từ Log-Sweep)");
 		stringBuilder.AppendLine();
@@ -2840,7 +2851,7 @@ public partial class AudioRouting : UserControl
 		}
 		stringBuilder.AppendLine();
 		bool flag5 = double.IsFinite(summary.ThdPercent) && summary.ThdPercent <= limit;
-		string value4 = ((!double.IsFinite(summary.ThdPercent)) ? "" : (flag5 ? "✓ ĐẠT (PASS)" : "✗ VƯỢT (FAIL)"));
+		string value4 = !summary.IsValid ? "THAM KHẢO · CẦN ĐO LẠI" : !double.IsFinite(summary.ThdPercent) ? "" : flag5 ? "✓ ĐẠT (PASS)" : "✗ VƯỢT (FAIL)";
 		stringBuilder2 = stringBuilder;
 		StringBuilder stringBuilder5 = stringBuilder2;
 		handler = new StringBuilder.AppendInterpolatedStringHandler(23, 4, stringBuilder2);
@@ -2917,7 +2928,16 @@ public partial class AudioRouting : UserControl
 			ResponseValid = _freqs.Count >= 3 && !_testRunner.FeqRepeatabilityInvalid
 				&& string.IsNullOrWhiteSpace(_testRunner.LastFeqInvalidReason) && sweep?.Validity != "INVALID",
 			AcquisitionIssue = _testRunner.LastFeqInvalidReason,
-			HasComparableReference = HasComparableStandardCurve() && !_testRunner.MissingFrequencyLimits,
+			HasComparableReference = HasComparableStandardCurve(),
+			NormalizedAtOneKilohertz = _testRunner.NormalizeFrequencyResponseToOneKilohertz,
+			MeasuredOneKilohertzDbFs = _testRunner.LastOneKilohertzLevelDbFs,
+			ReferenceOneKilohertzDbFs = _standardOneKilohertzLevelDbFs ?? double.NaN,
+			HasEffectEvidence = sweep?.ImpulseEffects is { IsValid: true },
+			EffectClassificationReliable = sweep?.ImpulseEffects?.CanClassify(_testRunner.ImpulseEffectsSettings) == true,
+			EchoDetected = sweep?.ImpulseEffects?.EchoDetected == true,
+			ReverbDetected = sweep?.ImpulseEffects?.ReverbDetected == true,
+			EchoDelayMs = sweep?.ImpulseEffects?.EchoDelayMs ?? double.NaN,
+			EffectObservation = sweep?.ImpulseEffects?.Describe(_testRunner.ImpulseEffectsSettings) ?? "",
 			ReliableImpulse = sweep is { HasPlausibleDirectArrival: true, Validity: not "INVALID", IsClipped: false },
 			Polarity = sweep?.Polarity ?? "UNKNOWN",
 			DistortionValid = !_testRunner.ThdAcquisitionInvalid && _testRunner.LastToneQualities.Count > 0,
@@ -2929,7 +2949,7 @@ public partial class AudioRouting : UserControl
 		};
 		var notes = SpeakerMeasurementDiagnosis.DescribeMeasurement(evidence).ToList();
 		if (!string.IsNullOrEmpty(_testRunner.LastPreflightWarning)) notes.Insert(0, _testRunner.LastPreflightWarning);
-		TxtFailureDiagnosis.Text = "Nhận xét tham khảo sau đo:\n• " + string.Join("\n• ", notes);
+		TxtFailureDiagnosis.Text = "Tổng quan bản thu:\n• " + string.Join("\n• ", notes);
 		TxtFailureDiagnosis.Visibility = Visibility.Visible;
 	}
 
@@ -3002,10 +3022,22 @@ public partial class AudioRouting : UserControl
 	{
 		string value = DateTime.Now.ToString("HH:mm:ss.fff");
 		Debug.WriteLine($"[{value}] [{source}] {message}");
+		if (source == "Thời gian chuẩn bị") TxtMeasurementTiming.Text = "";
+		if (source == "Thời gian kết quả") TxtMeasurementTiming.Text = message;
+		if (source.StartsWith("Thời gian", StringComparison.Ordinal))
+		{
+			try
+			{
+				string entry = System.Text.Json.JsonSerializer.Serialize(new { utc = DateTimeOffset.UtcNow, source, message });
+				File.AppendAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "measurement-timing.jsonl"), entry + Environment.NewLine);
+			}
+			catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Debug.WriteLine(ex.Message); }
+		}
 	}
 
 	private async void BtnStart_Click(object sender, RoutedEventArgs e)
 	{
+		if (C360ModelDefinition.Matches(_activeInOutConfig)) { await RunC360ModelAutoTestAsync(singleTest: _appliedTestConfig ?? _autoTestCases.FirstOrDefault()?.Config); return; }
 		CloseRoutingScope();
 		using IDisposable? workflow = TryBeginRoutingWorkflow();
 		if (workflow == null) return;
@@ -3093,9 +3125,23 @@ public partial class AudioRouting : UserControl
 
 	public void CancelAndDiscardCurrentMeasurement()
 	{
+		if (_impedanceWindow?.IsBusy == true) { _impedanceWindow.Cancel(); return; }
+		_c360ModelCancellation?.Cancel();
+		_autoDiagnosticsCancellation?.Cancel();
+		if (_measurementDetailsWindow?.IsDiagnosticRunning == true)
+		{
+			_measurementDetailsWindow.CancelDiagnostic();
+			AppendLog("Chẩn đoán riêng", "Dừng bài tone riêng; giữ kết quả sweep/line đã đo.");
+			return;
+		}
 		bool isTestingBusy = IsTestingBusy;
-		bool keepPassedAutoTests = _isExecutingAutoSuite && PreservePassedAutoTestsForResume();
+		bool c360 = C360ModelDefinition.Matches(_activeInOutConfig);
+		bool keepPassedAutoTests = !c360 && _isExecutingAutoSuite && PreservePassedAutoTestsForResume();
 		_discardCurrentMeasurementRequested = true;
+		_reviewedAutoTestCase = null;
+		_lineAcquisitionValues = null;
+		_rawResponse = new Dictionary<double, double>();
+		_routingMeterBuffer.Stop();
 		ClearLocalMeasurementDiagnosis();
 		_isExecutingAutoSuite = false;
 		_testRunner?.Cancel();
@@ -3125,14 +3171,16 @@ public partial class AudioRouting : UserControl
 		if (!keepPassedAutoTests)
 		{
 			_autoTestResumeSession = null;
-			DeleteDiscardedAutoTestArtifacts();
+			if (_c360ModelCancellation == null) DeleteDiscardedAutoTestArtifacts();
 		}
+		if (c360) ClearC360ModelResults();
 		BtnSaveStandard.IsEnabled = false;
 		BorderVerdict.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(24, 24, 27));
 		BorderVerdict.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68));
 		LblVerdict.Text = keepPassedAutoTests ? "ĐÃ DỪNG — GIỮ CÁC BÀI PASS" : (isTestingBusy ? "ĐÃ DỪNG VÀ XÓA KẾT QUẢ" : "ĐÃ XÓA KẾT QUẢ VỪA ĐO");
 		LblVerdict.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(248, 113, 113));
 		AppendLog("Hệ thống", LblVerdict.Text);
+		UpdateMeasurementDetails();
 	}
 
 	private void DeleteDiscardedAutoTestArtifacts()
@@ -3170,6 +3218,7 @@ public partial class AudioRouting : UserControl
 		StopRoutingHeadroomMonitor();
 		_audioEngine.StopAllAudio();
 		EnsureSelectedStandardSampleRates(beforeMeasurement: true);
+		using var windowsLevels = new WindowsAudioLevels(playbackDevice, recordingDevice, _appliedTestConfig);
 		AppendLog("Audio", "Đã tắt mọi nguồn phát của app và đóng/xóa buffer bài cũ; bắt đầu bài mới.");
 		RewMeterRouting?.PrepareForLiveCapture();
 		System.Threading.Interlocked.Exchange(ref _routingMeterSession, _routingMeterBuffer.Start());
@@ -3180,14 +3229,23 @@ public partial class AudioRouting : UserControl
 		UpdateSampleRateWarning();
 		if (_sampleRateWarningText.Length > 0) AppendLog("Cảnh báo 44.1 kHz", _sampleRateWarningText);
 		_lineAcquisitionValues = BuildAcquisitionValues();
+		_captureDiagnosticContext = DiagnosticContextKey();
+		_capturePolarityReference = HasComparableStandardCurve() ? _standardPolarityReference : null;
 		// Both the comparison grid and default display use 1/24 octave, 50–18k.
 		_testRunner.EvaluationMaxFrequencyHz = 18000.0;
 		_testRunner.RestrictFeqToEvaluationRange = true;
 		UpdateMeasurementDetails(pending: true);
 		Task measurementTask = (_activeMeasurementTask = _testRunner.RunTestAsync(playbackDevice, recordingDevice, runFeqThreeTimes, referenceAcquisition));
+		await ObserveMeasurementTaskAsync(measurementTask);
+	}
+
+	private async Task ObserveMeasurementTaskAsync(Task measurementTask)
+	{
 		try
 		{
 			await measurementTask;
+			if (!_discardCurrentMeasurementRequested && _testRunner.LastSweepResult is { } finalSweep)
+				RememberSweepPolarity(finalSweep);
 		}
 		catch (OperationCanceledException) when (_discardCurrentMeasurementRequested)
 		{
@@ -3208,7 +3266,7 @@ public partial class AudioRouting : UserControl
 			BorderVerdict.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(69, 10, 10));
 			BorderVerdict.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 68, 68));
 			LblVerdict.Text = "KHÔNG THỂ ĐO — CHƯA CÓ KẾT QUẢ";
-			TxtFailureDiagnosis.Text = "Chưa thu được dữ liệu hợp lệ. Kiểm tra kết nối và ngõ phát/thu trước khi phán đoán lỗi loa.";
+			TxtFailureDiagnosis.Text = "Chưa thu được dữ liệu hợp lệ; kiểm tra kết nối và ngõ phát/thu.";
 			TxtFailureDiagnosis.Visibility = Visibility.Visible;
 			LblVerdict.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(248, 113, 113));
 			if (!_isExecutingAutoSuite)
@@ -3216,18 +3274,19 @@ public partial class AudioRouting : UserControl
 		}
 		finally
 		{
-			_audioEngine.StopAllAudio();
-			if (_activeMeasurementTask == measurementTask)
+			try { _audioEngine.StopAllAudio(); }
+			finally
 			{
-				_activeMeasurementTask = null;
-			}
-			if (!_isExecutingAutoSuite && !_isFindingStandardReference)
-			{
-				BtnStart.IsEnabled = true;
-				BtnStartAutoTest.IsEnabled = true;
-				BtnSaveStandardReference.IsEnabled = true;
-				BtnNoiseTest.IsEnabled = true;
-				BtnSaveStandard.IsEnabled = !_discardCurrentMeasurementRequested && _freqs.Count >= 2;
+				if (_activeMeasurementTask == measurementTask) _activeMeasurementTask = null;
+				if (_discardCurrentMeasurementRequested) UpdateMeasurementDetails();
+				if (!_isExecutingAutoSuite && !_isFindingStandardReference)
+				{
+					BtnStart.IsEnabled = true;
+					BtnStartAutoTest.IsEnabled = true;
+					BtnSaveStandardReference.IsEnabled = true;
+					BtnNoiseTest.IsEnabled = true;
+					BtnSaveStandard.IsEnabled = !_discardCurrentMeasurementRequested && _freqs.Count >= 2;
+				}
 			}
 		}
 	}
@@ -3378,6 +3437,7 @@ public partial class AudioRouting : UserControl
 
 	private void AudioRouting_Unloaded(object sender, RoutedEventArgs e)
 	{
+		_measurementDetailsWindow?.Close();
 		if (_measurementShortcutHost != null) _measurementShortcutHost.PreviewKeyDown -= HandleMeasurementShortcut;
 		_measurementShortcutHost = null;
 		CloseRoutingScope();
@@ -3388,6 +3448,8 @@ public partial class AudioRouting : UserControl
 		_routingMeterTimer.Stop();
 		_routingMeterBuffer.Stop();
 	}
+
+	internal Action<string, string>? SignalWarningPresenter;
 
 	private void ShowSignalLevelPopupIfNeeded()
 	{
@@ -3415,12 +3477,20 @@ public partial class AudioRouting : UserControl
 			AppendLog("Popup mức tín hiệu", text.Replace(Environment.NewLine, " "));
 			ModernMessageBox.ShowPersistentWarning(Window.GetWindow((DependencyObject)(object)this), text, "Input quá mạnh — Chưa đo THD");
 		}
-		else if (_testRunner.SilentInputDetected && (!double.IsFinite(_testRunner.LastSignalLevelDbFs) || _testRunner.LastSignalLevelDbFs < _testRunner.MinimumInputSignalDbFs))
+			else if (MeasurementSignalStatus.MissingStimulus(_testRunner.LastSweepResult, _testRunner.SilentInputDetected))
 		{
-			string text2 = $"KHÔNG CÓ TÍN HIỆU TẠI MIC\n\nMức thu: {_testRunner.LastSignalLevelDbFs:F1} dBFS — cần ≥ {_testRunner.MinimumInputSignalDbFs:F1} dBFS\nWindows IN: {value2} — OUT: {value:F1} dBFS\n\n" + "Phép đo đã dừng; không dùng giá trị THD khi mic mất tín hiệu. Kiểm tra pin và nguồn mic, kết nối Mic 2, mute và đường phát; sau đó thử lại.";
+				string text2 = MeasurementSignalStatus.MissingStimulusMessage(SelectedPlaybackDevice?.FriendlyName ?? "Chưa chọn",
+					SelectedRecordingDevice?.FriendlyName ?? "Chưa chọn", _testRunner.LastSweepResult);
 			AppendLog("Popup mức tín hiệu", text2.Replace(Environment.NewLine, " "));
-			TxtThdStatus.Text = "CHƯA ĐO — KHÔNG CÓ TÍN HIỆU MIC";
-			ModernMessageBox.ShowPersistentWarning(Window.GetWindow((DependencyObject)(object)this), text2, "Không có tín hiệu mic — Chưa đo THD");
+				TxtThdStatus.Text = "CHƯA ĐO — KHÔNG NHẬN ĐƯỢC TÍN HIỆU THỬ";
+				if (SignalWarningPresenter is { } present) present(text2, "Kiểm tra đường phát / thu");
+				else ModernMessageBox.ShowPersistentWarning(Window.GetWindow((DependencyObject)(object)this), text2, "Kiểm tra đường phát / thu");
+		}
+		else if (MeasurementSignalStatus.LowSignalWarning(_testRunner.LastSweepResult) is string lowSignal)
+		{
+			AppendLog("Mức tín hiệu đo", lowSignal);
+			if (SignalWarningPresenter is { } present) present(lowSignal, "Tín hiệu đo thấp");
+			else ModernMessageBox.ShowPersistentWarning(Window.GetWindow(this), lowSignal, "Tín hiệu đo thấp");
 		}
 	}
 
@@ -4115,11 +4185,14 @@ public partial class AudioRouting : UserControl
 			return;
 		}
 		_appliedTestConfig = testConfig;
+		_testRunner.ImpulseEffectsSettings = testConfig.ImpulseEffects ?? new();
 		_referenceRouteKey = MakeSafeFileToken(testConfig.id + "_" + testConfig.PlaybackOut + "_TO_" + testConfig.RecordingIn);
 		_audioEngine.RecordingChannel = ResolveRecordingChannel(testConfig);
 		_audioEngine.PlaybackChannel = ResolvePlaybackChannel(testConfig);
 		SyncChannelSelectionsFromEngine();
 		_testRunner.PlaybackFrequencyScale = ResolvePlaybackFrequencyScale(testConfig);
+		if (testConfig.LogSweepDurationSeconds is double sweepSeconds) SelectLogSweepDuration(sweepSeconds);
+		if (testConfig.MultitoneDurationSeconds is double multitoneSeconds) SelectMultitoneDuration(multitoneSeconds);
 		if (testConfig.PlaybackLevelDbfs.HasValue)
 		{
 			PlaybackLevelDbfs = testConfig.PlaybackLevelDbfs.Value;
@@ -4186,8 +4259,10 @@ public partial class AudioRouting : UserControl
 	private void TestCaseItem_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
 	{
 		if (sender is not FrameworkElement { DataContext: AutoTestCaseItem { Config: not null } dataContext }) return;
-		if (dataContext.Status is "PASS" or "FAIL" && dataContext.ResponseFrequencies.Length > 0)
+		if ((dataContext.Status is "PASS" or "FAIL" && (dataContext.ResponseFrequencies.Length > 0 || dataContext.FrequencyShift != null))
+			|| C360ModelDefinition.Matches(_activeInOutConfig) && dataContext.Status == "INVALID")
 		{
+			if (!IsTestingBusy) ApplyTestCaseConfig(dataContext.Config);
 			DisplayAutoTestResult(dataContext);
 			AppendLog("TestReview", $"Đang xem lại đáp tuyến và distortion của {dataContext.Id} trong khung đồ thị chính.");
 			e.Handled = true;
@@ -4212,6 +4287,12 @@ public partial class AudioRouting : UserControl
 	private void DisplayAutoTestResult(AutoTestCaseItem test)
 	{
 		_reviewedAutoTestCase = test;
+		TxtQualityChartHeading.Text = test.Config.SpeakerStage == "MicFrequencyShift" ? "DI TẦN MIC" : test.Config.SpeakerStage == "MicEffects" ? "ECHO / REVERB" : "DISTORTION";
+		PanelThdInspection.Visibility = test.Config.SpeakerStage is "MicFrequencyShift" or "MicEffects" ? Visibility.Collapsed : Visibility.Visible;
+		if (test.Config.SpeakerStage == "MicFrequencyShift")
+		{
+			ShowC360FrequencyShiftPlot(test); ClearThdPlots(); ShowC360Review(test, _selectedThdInspectFrequencyHz); UpdateMeasurementDetails(); return;
+		}
 		PlotFreqResponse.Plot.Title($"{test.Id} — {test.Name}");
 		PlotFreqResponse.Plot.Axes.Left.Label.Text = test.ResponseLevelUnit == "dBr"
 			? "Mức tương đối 1 kHz (dBr)" : "Mức thu RMS (dBFS)";
@@ -4220,7 +4301,9 @@ public partial class AudioRouting : UserControl
 		foreach (ToneQualityMetrics quality in test.DistortionMeasurements.Values.OrderBy(value => value.FundamentalFrequencyHz))
 			UpdateThdFftChart(quality.FundamentalFrequencyHz, quality.SpectrumFrequenciesHz,
 				quality.SpectrumMagnitudes, quality.ThdPercent, quality.IsValid);
-		TxtSweepDistortionMetrics.Text = $"Đang xem lại {test.Id} — {test.Name}\n{test.ThdStatus}";
+		if (test.Config.SpeakerStage != null) ShowC360Review(test, _selectedThdInspectFrequencyHz);
+		else TxtSweepDistortionMetrics.Text = $"Đang xem lại {test.Id} — {test.Name}\n{test.ThdStatus}";
+		UpdateMeasurementDetails();
 	}
 
 	private void ComboDevice_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -4517,6 +4600,7 @@ public partial class AudioRouting : UserControl
 	private async void BtnStartAutoTest_Click(object sender, RoutedEventArgs e)
 	{
 		CloseRoutingScope();
+		if (C360ModelDefinition.Matches(_activeInOutConfig)) { await RunC360ModelAutoTestAsync(); return; }
 		_reviewedAutoTestCase = null;
 		using IDisposable? workflow = TryBeginRoutingWorkflow();
 		if (workflow == null) return;
@@ -4678,6 +4762,7 @@ public partial class AudioRouting : UserControl
 			autoTestCase.ResponseFrequencies = Array.Empty<double>();
 			autoTestCase.ResponseLevels = Array.Empty<double>();
 			autoTestCase.DistortionMeasurements = new Dictionary<double, ToneQualityMetrics>();
+			autoTestCase.AdditionalResults = Array.Empty<ConfiguredTestResult>();
 			if (i == resumeIndex)
 			{
 				autoTestCase.Status = "RUNNING";
@@ -4709,6 +4794,16 @@ public partial class AudioRouting : UserControl
 			_autoTestAttempt = attemptCounts.GetValueOrDefault(testIndex) + 1;
 			attemptCounts[testIndex] = _autoTestAttempt;
 			_currentRunningTestCase = test2;
+			test2.AdditionalResults = Array.Empty<ConfiguredTestResult>();
+			try { test2.Config.ValidateAdditionalTests(); }
+			catch (Exception ex)
+			{
+				test2.AdditionalResults = new[] { new ConfiguredTestResult("Cấu hình bổ sung", "INVALID", ex.Message) };
+				test2.Status = "INVALID"; test2.StatusBrush = Brushes.Gold;
+				suitePassed = false; invalidQaAcquisition = true;
+				AppendLog("Auto Test", test2.AdditionalStatus);
+				break;
+			}
 			_currentTestSuccess = null;
 			test2.Status = "RUNNING";
 			test2.StatusBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(250, 204, 21));
@@ -4891,7 +4986,25 @@ public partial class AudioRouting : UserControl
 			bool distortionPassed = _testRunner.Steps.ElementAtOrDefault(2)?.Status == "Pass";
 			if (!distortionPassed && !acquisitionInvalid && double.IsFinite(_testRunner.LastMeasuredThdPercent))
 				distortionPassed = _testRunner.LastMeasuredThdPercent <= (test2.Config?.ThdLimit ?? 0.5);
-			bool passed = frequencyPassed && distortionPassed && !acquisitionInvalid;
+			if (test2.Config.HasAdditionalTests && !cancelled)
+			{
+				test2.Status = "RUNNING"; test2.StatusBrush = Brushes.Gold;
+				LblVerdict.Text = test2.Id + " — ĐANG KIỂM TRA BỔ SUNG"; LblVerdict.Foreground = Brushes.Gold;
+			}
+			await RunTrackedConfiguredTestsAsync(test2, playbackDevice, recordingDevice, !acquisitionInvalid && !cancelled);
+			cancelled |= _discardCurrentMeasurementRequested || !_isExecutingAutoSuite;
+			bool additionalInvalid = test2.AdditionalResults.Any(r => r.Invalid);
+			if (additionalInvalid && !acquisitionInvalid && !cancelled)
+			{
+				test2.Status = "INVALID"; test2.StatusBrush = Brushes.Gold;
+				suitePassed = false; invalidQaAcquisition = true;
+				var priorReview = _reviewedAutoTestCase; _reviewedAutoTestCase = null;
+				CaptureAutoTestResultForReview(test2);
+				if (priorReview != null) DisplayAutoTestResult(priorReview);
+				AppendLog("Auto Test", "Phép bổ sung chưa hợp lệ; xem nguyên nhân ở bài đo rồi chạy lại. Không kết luận lỗi loa.");
+				break;
+			}
+			bool passed = frequencyPassed && distortionPassed && !acquisitionInvalid && test2.AdditionalResults.All(r => r.Passed);
 			AutoTestAttemptDecision decision = AutoTestRetryPolicy.Decide(_autoTestAttempt, passed,
 				!_testRunner.MissingFrequencyLimits, cancelled || _discardCurrentMeasurementRequested || !_isExecutingAutoSuite,
 				acquisitionInvalid);
@@ -4950,7 +5063,7 @@ public partial class AudioRouting : UserControl
 			test2.StatusBrush = passed ? Brushes.MediumSpringGreen : Brushes.Salmon;
 			if (!passed)
 			{
-				AppendLog("Auto Test", $"[{test2.Id}] Bản thu hợp lệ nhưng vượt giới hạn FEQ/THD. Dừng tại bài này; bấm Auto Test để đo lại từ đây.");
+				AppendLog("Auto Test", $"[{test2.Id}] Bản thu hợp lệ nhưng vượt giới hạn FEQ/THD hoặc phép kiểm tra bổ sung. Dừng tại bài này; bấm Auto Test để đo lại từ đây.");
 				break;
 			}
 		}
@@ -5002,15 +5115,161 @@ public partial class AudioRouting : UserControl
 		{
 			return;
 		}
-		string serialNumberForUpload = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? text;
-		string modelForUpload = (Application.Current.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString()?.Trim() ?? "";
+		await UploadCompletedAutoTestAsync(text, currentModel, completedAutoTestSessionFolder, suitePassed, devicesReadyForServerUpload);
+		}
+		catch (Exception ex)
+		{
+			AppendLog("Auto Test", "Dừng do lỗi: " + GetMeasurementErrorMessage(ex));
+			if (!PreservePassedAutoTestsForResume())
+				_autoTestResumeSession = null;
+			_isExecutingAutoSuite = false;
+			_currentRunningTestCase = null;
+			_autoTestSessionFolder = null;
+			BtnStart.IsEnabled = true;
+			BtnStartAutoTest.IsEnabled = true;
+			BtnSaveStandardReference.IsEnabled = true;
+			BtnNoiseTest.IsEnabled = true;
+			await RestoreUserRoutingAfterAutoTestAsync(playbackDeviceIdBeforeAutoTest, recordingDeviceIdBeforeAutoTest, playbackChannelBeforeAutoTest, recordingChannelBeforeAutoTest);
+			SelectPlaybackMode("Shared");
+		_audioEngine.UseExclusivePlayback = false;
+			ModernMessageBox.Show(Window.GetWindow((DependencyObject)(object)this), GetMeasurementErrorMessage(ex), "Auto Test chưa hoàn tất", ModernMessageBox.MessageBoxType.Error);
+		}
+		finally
+		{
+			_audioEngine.Stop();
+			StopRoutingHeadroomMonitor();
+			_audioEngine.StopContinuousPlayback();
+			_audioEngine.StopContinuousCapture();
+			_autoTestAttempt = 0;
+			_leaveAudioReleasedAfterAutoTest = false;
+			AppendLog("Auto Test", "Đã giải phóng phát/thu sau Auto Test; khôi phục Headroom khi đủ ngõ phát và ngõ thu.");
+			if (base.IsLoaded)
+				Dispatcher.BeginInvoke((Action)MaintainRoutingHeadroomMonitor, DispatcherPriority.Background);
+		}
+	}
+
+	private static bool ProductMatchesUploadIdentity(ProductInfo? product, string identity)
+	{
+		if (product == null || string.IsNullOrWhiteSpace(identity)) return false;
+		string expected = identity.Trim();
+		return string.Equals(product.Id?.Trim(), expected, StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(product.ProductCode?.Trim(), expected, StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(product.SerialNumber?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
+	}
+
+	private bool _legacyStandardsImported;
+
+	private string GetStandardsDirectory()
+	{
+		string directory = System.IO.Path.Combine(GetUserDataDirectory(), "save standards");
+		Directory.CreateDirectory(directory);
+		if (_legacyStandardsImported) return directory;
+		_legacyStandardsImported = true;
+		string legacyRoot = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save standards");
+		try
+		{
+			if (Directory.Exists(legacyRoot))
+			{
+				foreach (string source in Directory.EnumerateFiles(legacyRoot, "standard_*.csv", SearchOption.AllDirectories))
+				{
+					string target = System.IO.Path.Combine(directory, System.IO.Path.GetRelativePath(legacyRoot, source));
+					Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+					if (!File.Exists(target)) File.Copy(source, target);
+				}
+			}
+			foreach (string source in Directory.EnumerateFiles(AppDomain.CurrentDomain.BaseDirectory, "standard_*.csv"))
+			{
+				string target = System.IO.Path.Combine(directory, System.IO.Path.GetFileName(source));
+				if (!File.Exists(target)) File.Copy(source, target);
+			}
+		}
+		catch (Exception ex)
+		{
+			AppendLog("Standard", "Không nhập được line chuẩn từ thư mục bản cũ: " + ex.Message);
+		}
+		return directory;
+	}
+
+	private string GetStandardDeviceKey() => GetStandardDeviceKeyForBasis(_testRunner.CurrentFrequencyResponseLevelBasis);
+	private string AppliedModelTestFingerprint() => _appliedTestConfig == null ? "" : Convert.ToHexString(
+		System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(_appliedTestConfig))));
+
+	private string GetStandardDeviceKeyForBasis(string levelBasis, bool useLegacyPlaybackName = false, double? toleranceOverride = null)
+	{
+		if (ComboPlayback == null || ComboRecording == null || TxtFreqTolerance == null || TxtThdLimit == null)
+		{
+			return "";
+		}
+		string value = _appliedTestConfig != null && !useLegacyPlaybackName
+			? "MODEL_" + MakeSafeFileToken((Application.Current?.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString() ?? "UNKNOWN")
+				+ "_OUT_" + MakeSafeFileToken(_appliedTestConfig.PlaybackOut ?? "UNKNOWN")
+			: ((ComboPlayback.SelectedItem is DeviceItem deviceItem) ? deviceItem.DisplayName : "UnknownOut");
+		string value2 = ((ComboRecording.SelectedItem is DeviceItem deviceItem2) ? deviceItem2.DisplayName : "UnknownIn");
+		double value3 = PlaybackLevelDbfs;
+		double value4 = toleranceOverride ?? ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
+		object obj;
+		if (!AudioEngine.flagGenerateSeperateSine)
+		{
+			TestRunner testRunner = _testRunner;
+			if (testRunner == null || !testRunner.UseLogSweepFrequencyResponse)
+			{
+				TestRunner testRunner2 = _testRunner;
+				obj = ((testRunner2 != null && testRunner2.UseCombinedMultitoneFrequencyResponse) ? $"MULTITONE_ALL_P1100_D{_testRunner.MultitoneDurationSeconds:0.##}" : $"MULTITONE_P1100_D{_testRunner.MultitoneDurationSeconds:0.##}");
+			}
+			else
+			{
+			obj = $"LOGSWEEP_{ResponseSmoothing.AnalysisId}_N{Math.Round(_testRunner.LogSweepDurationSeconds * _audioEngine.PlaybackSampleRate):F0}";
+			}
+		}
+		else
+		{
+			obj = "SINE";
+		}
+		string value5 = (string)obj;
+		MicrophoneCalibration microphoneCalibration = ResolveFeqMicrophoneCalibration();
+		string value6 = ((microphoneCalibration == null) ? "NO_CAL" : ("CAL_" + MakeSafeFileToken(microphoneCalibration.Name))) + (_appliedTestConfig?.MicrophoneCalibration is { } attachment ? "_" + attachment.Sha256 : "");
+		int? recordingChannel = _audioEngine.RecordingChannel;
+		object obj2;
+		if (recordingChannel.HasValue)
+		{
+			int valueOrDefault = recordingChannel.GetValueOrDefault();
+			obj2 = $"CH{valueOrDefault + 1}";
+		}
+		else
+		{
+			obj2 = "CHMIX";
+		}
+		string value7 = (string)obj2;
+		string playbackChannelKey = _audioEngine.PlaybackChannel == 0 ? "OUT_L" : _audioEngine.PlaybackChannel == 1 ? "OUT_R" : "OUT_LR";
+		string value8 = $"FS{Math.Round((_testRunner?.PlaybackFrequencyScale ?? 1.0) * 1000000.0):F0}";
+		string playbackMode = (_audioEngine.UseExclusivePlayback ? "EXCL" : "SHARED");
+		string text = $"{levelBasis}_{_referenceRouteKey}_{value5}_{playbackChannelKey}_{value7}_{value8}_{value6}_{value}_IN_{value2}_WV_{value3:F0}_SR{_audioEngine.PlaybackSampleRate}_PM{playbackMode}_T_{value4:F1}";
+		if (_appliedTestConfig != null)
+		{
+			text += "_CFG" + AppliedModelTestFingerprint()[..16];
+		}
+		char[] invalidFileNameChars = System.IO.Path.GetInvalidFileNameChars();
+		char[] array = invalidFileNameChars;
+		char[] array2 = array;
+		char[] array3 = array2;
+		foreach (char oldChar in array3)
+		{
+			text = text.Replace(oldChar, '_');
+		}
+		return text.Replace(' ', '_');
+	}
+
+	private async Task UploadCompletedAutoTestAsync(string fallbackSerial, string modelForSession, string? completedAutoTestSessionFolder, bool suitePassed, bool devicesReadyForServerUpload)
+	{
+		string serialNumberForUpload = (Application.Current.MainWindow as MainWindow)?.TxtSerialNumber?.Text?.Trim() ?? fallbackSerial;
+		string modelForUpload = modelForSession;
 		if (string.IsNullOrWhiteSpace(modelForUpload))
 		{
 			modelForUpload = "MISAM";
 		}
 		if (string.IsNullOrWhiteSpace(serialNumberForUpload) || string.Equals(serialNumberForUpload, "CHƯA CÓ SERIAL", StringComparison.OrdinalIgnoreCase) || string.Equals(serialNumberForUpload, "CHUA CO SERIAL", StringComparison.OrdinalIgnoreCase))
 		{
-			serialNumberForUpload = text;
+			serialNumberForUpload = fallbackSerial;
 		}
 		if (!ProductMatchesUploadIdentity(ServerEngine.CurrentProduct, serialNumberForUpload))
 		{
@@ -5090,6 +5349,7 @@ public partial class AudioRouting : UserControl
 			double value8 = acquisition?.PlaybackLevelDbfs ?? autoTestCaseItem.Config?.PlaybackLevelDbfs ?? double.NaN;
 			double value9 = acquisition?.ThdLimitPercent ?? autoTestCaseItem.Config?.ThdLimit ?? 0.5;
 			string details = $"Out: {value6}{Environment.NewLine}In: {value7}{Environment.NewLine}FRA: {autoTestCaseItem.FreqStatus}{Environment.NewLine}THD: {autoTestCaseItem.ThdStatus}{Environment.NewLine}Noise: {autoTestCaseItem.NoiseStatus}{Environment.NewLine}Playback Out: {text8}{Environment.NewLine}Recording In: {text9}{Environment.NewLine}Signal Level: {value8:F1} dBFS{Environment.NewLine}App Sample Rate: {acquisition?.PlaybackSampleRate} Hz{Environment.NewLine}Capture Sample Rate: {acquisition?.RecordingSampleRate} Hz{Environment.NewLine}Playback Mode: {(acquisition?.ExclusivePlayback == true ? "EXCL" : "Shared")}{Environment.NewLine}THD Limit: {value9:F1}{Environment.NewLine}Acquisition: {JsonSerializer.Serialize(acquisition)}";
+			details += Environment.NewLine + autoTestCaseItem.AdditionalStatus;
 			return new ServerEngine.AudioQaStepResult(text7 + " - " + autoTestCaseItem.Name, autoTestCaseItem.Status, details);
 		}), product: ServerEngine.CurrentProduct, passed: suitePassed, graphImagePaths: list2, deviceReady: devicesReadyForServerUpload, uploadSessionId: uploadSessionId)))
 		{
@@ -5099,141 +5359,6 @@ public partial class AudioRouting : UserControl
 		{
 			AppendLog("Server", $"Upload thành công đúng một log QA cho {serialNumberForUpload}, phiên {uploadSessionId}.");
 		}
-		}
-		catch (Exception ex)
-		{
-			AppendLog("Auto Test", "Dừng do lỗi: " + GetMeasurementErrorMessage(ex));
-			if (!PreservePassedAutoTestsForResume())
-				_autoTestResumeSession = null;
-			_isExecutingAutoSuite = false;
-			_currentRunningTestCase = null;
-			_autoTestSessionFolder = null;
-			BtnStart.IsEnabled = true;
-			BtnStartAutoTest.IsEnabled = true;
-			BtnSaveStandardReference.IsEnabled = true;
-			BtnNoiseTest.IsEnabled = true;
-			await RestoreUserRoutingAfterAutoTestAsync(playbackDeviceIdBeforeAutoTest, recordingDeviceIdBeforeAutoTest, playbackChannelBeforeAutoTest, recordingChannelBeforeAutoTest);
-			SelectPlaybackMode("Shared");
-		_audioEngine.UseExclusivePlayback = false;
-			ModernMessageBox.Show(Window.GetWindow((DependencyObject)(object)this), GetMeasurementErrorMessage(ex), "Auto Test chưa hoàn tất", ModernMessageBox.MessageBoxType.Error);
-		}
-		finally
-		{
-			_audioEngine.Stop();
-			StopRoutingHeadroomMonitor();
-			_audioEngine.StopContinuousPlayback();
-			_audioEngine.StopContinuousCapture();
-			_autoTestAttempt = 0;
-			_leaveAudioReleasedAfterAutoTest = false;
-			AppendLog("Auto Test", "Đã giải phóng phát/thu sau Auto Test; khôi phục Headroom khi đủ ngõ phát và ngõ thu.");
-			if (base.IsLoaded)
-				Dispatcher.BeginInvoke((Action)MaintainRoutingHeadroomMonitor, DispatcherPriority.Background);
-		}
-	}
-
-	private static bool ProductMatchesUploadIdentity(ProductInfo? product, string identity)
-	{
-		if (product == null || string.IsNullOrWhiteSpace(identity)) return false;
-		string expected = identity.Trim();
-		return string.Equals(product.Id?.Trim(), expected, StringComparison.OrdinalIgnoreCase)
-			|| string.Equals(product.ProductCode?.Trim(), expected, StringComparison.OrdinalIgnoreCase)
-			|| string.Equals(product.SerialNumber?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
-	}
-
-	private bool _legacyStandardsImported;
-
-	private string GetStandardsDirectory()
-	{
-		string directory = System.IO.Path.Combine(GetUserDataDirectory(), "save standards");
-		Directory.CreateDirectory(directory);
-		if (_legacyStandardsImported) return directory;
-		_legacyStandardsImported = true;
-		string legacyRoot = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save standards");
-		try
-		{
-			if (Directory.Exists(legacyRoot))
-			{
-				foreach (string source in Directory.EnumerateFiles(legacyRoot, "standard_*.csv", SearchOption.AllDirectories))
-				{
-					string target = System.IO.Path.Combine(directory, System.IO.Path.GetRelativePath(legacyRoot, source));
-					Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
-					if (!File.Exists(target)) File.Copy(source, target);
-				}
-			}
-			foreach (string source in Directory.EnumerateFiles(AppDomain.CurrentDomain.BaseDirectory, "standard_*.csv"))
-			{
-				string target = System.IO.Path.Combine(directory, System.IO.Path.GetFileName(source));
-				if (!File.Exists(target)) File.Copy(source, target);
-			}
-		}
-		catch (Exception ex)
-		{
-			AppendLog("Standard", "Không nhập được line chuẩn từ thư mục bản cũ: " + ex.Message);
-		}
-		return directory;
-	}
-
-	private string GetStandardDeviceKey() => GetStandardDeviceKeyForBasis(_testRunner.CurrentFrequencyResponseLevelBasis);
-
-	private string GetStandardDeviceKeyForBasis(string levelBasis, bool useLegacyPlaybackName = false, double? toleranceOverride = null)
-	{
-		if (ComboPlayback == null || ComboRecording == null || TxtFreqTolerance == null || TxtThdLimit == null)
-		{
-			return "";
-		}
-		string value = _appliedTestConfig != null && !useLegacyPlaybackName
-			? "MODEL_" + MakeSafeFileToken((Application.Current?.MainWindow as MainWindow)?.ComboModels?.SelectedItem?.ToString() ?? "UNKNOWN")
-				+ "_OUT_" + MakeSafeFileToken(_appliedTestConfig.PlaybackOut ?? "UNKNOWN")
-			: ((ComboPlayback.SelectedItem is DeviceItem deviceItem) ? deviceItem.DisplayName : "UnknownOut");
-		string value2 = ((ComboRecording.SelectedItem is DeviceItem deviceItem2) ? deviceItem2.DisplayName : "UnknownIn");
-		double value3 = PlaybackLevelDbfs;
-		double value4 = toleranceOverride ?? ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
-		object obj;
-		if (!AudioEngine.flagGenerateSeperateSine)
-		{
-			TestRunner testRunner = _testRunner;
-			if (testRunner == null || !testRunner.UseLogSweepFrequencyResponse)
-			{
-				TestRunner testRunner2 = _testRunner;
-				obj = ((testRunner2 != null && testRunner2.UseCombinedMultitoneFrequencyResponse) ? $"MULTITONE_ALL_P1100_D{_testRunner.MultitoneDurationSeconds:0.##}" : $"MULTITONE_P1100_D{_testRunner.MultitoneDurationSeconds:0.##}");
-			}
-			else
-			{
-			obj = $"LOGSWEEP_{ResponseSmoothing.AnalysisId}_N{Math.Round(_testRunner.LogSweepDurationSeconds * _audioEngine.PlaybackSampleRate):F0}";
-			}
-		}
-		else
-		{
-			obj = "SINE";
-		}
-		string value5 = (string)obj;
-		MicrophoneCalibration microphoneCalibration = ResolveFeqMicrophoneCalibration();
-		string value6 = ((microphoneCalibration == null) ? "NO_CAL" : ("CAL_" + MakeSafeFileToken(microphoneCalibration.Name)));
-		int? recordingChannel = _audioEngine.RecordingChannel;
-		object obj2;
-		if (recordingChannel.HasValue)
-		{
-			int valueOrDefault = recordingChannel.GetValueOrDefault();
-			obj2 = $"CH{valueOrDefault + 1}";
-		}
-		else
-		{
-			obj2 = "CHMIX";
-		}
-		string value7 = (string)obj2;
-		string playbackChannelKey = _audioEngine.PlaybackChannel == 0 ? "OUT_L" : _audioEngine.PlaybackChannel == 1 ? "OUT_R" : "OUT_LR";
-		string value8 = $"FS{Math.Round((_testRunner?.PlaybackFrequencyScale ?? 1.0) * 1000000.0):F0}";
-		string playbackMode = (_audioEngine.UseExclusivePlayback ? "EXCL" : "SHARED");
-		string text = $"{levelBasis}_{_referenceRouteKey}_{value5}_{playbackChannelKey}_{value7}_{value8}_{value6}_{value}_IN_{value2}_WV_{value3:F0}_SR{_audioEngine.PlaybackSampleRate}_PM{playbackMode}_T_{value4:F1}";
-		char[] invalidFileNameChars = System.IO.Path.GetInvalidFileNameChars();
-		char[] array = invalidFileNameChars;
-		char[] array2 = array;
-		char[] array3 = array2;
-		foreach (char oldChar in array3)
-		{
-			text = text.Replace(oldChar, '_');
-		}
-		return text.Replace(' ', '_');
 	}
 
 	private string GetStandardDeviceFileName()
@@ -5367,7 +5492,7 @@ public partial class AudioRouting : UserControl
 		catch
 		{
 		}
-		string seqFilePath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SoncaAudioInspector", "autotest_sequence.json");
+		string seqFilePath = System.IO.Path.Combine(GetUserDataDirectory(), "autotest_sequence.json");
 		try
 		{
 			if (File.Exists(seqFilePath))
@@ -5609,6 +5734,7 @@ public partial class AudioRouting : UserControl
 
 	private void CheckAndLoadStandardDevice()
 	{
+		_standardPolarityReference = null;
 		_rawStandardCurve = new Dictionary<double, double>();
 		_standardImpulseEffects = null;
 		_standardCurve = null;
@@ -5660,6 +5786,8 @@ public partial class AudioRouting : UserControl
 					Dictionary<double, FrequencyLimitPoint> dictionary2 = new Dictionary<double, FrequencyLimitPoint>();
 					double num = ParseDoubleSafe(TxtFreqTolerance.Text, 3.0);
 					string[] array = File.ReadAllLines(standardDeviceFileName);
+					if (_appliedTestConfig != null && !array.Contains("# ModelTestConfig=" + AppliedModelTestFingerprint()))
+						throw new InvalidDataException("Cấu hình bài đo đã đổi hoặc line cũ chưa có thông tin cấu hình; cần tìm lại line chuẩn.");
 					string expectedBasis = useRawReferenceInNormalizedMode ? TestRunner.FrequencyResponseLevelBasis : _testRunner.CurrentFrequencyResponseLevelBasis;
 					if (!array.Contains("# LevelBasis=" + expectedBasis))
 						throw new InvalidDataException("Line chuẩn không khớp chế độ đo hiện tại; cần tìm lại line chuẩn.");
@@ -5809,6 +5937,13 @@ public partial class AudioRouting : UserControl
 	private void ConfigureProductionMeasurement(TestConfig? config)
 	{
 		_testRunner.ImpulseEffectsSettings = config?.ImpulseEffects ?? new ImpulseEffectSettings();
+		if (config?.TestEffect == true)
+		{
+			_testRunner.UseLogSweepFrequencyResponse = true;
+			_isApplyingMeasurementMethod = true;
+			ChkUseLogSweep.IsChecked = true;
+			_isApplyingMeasurementMethod = false;
+		}
 		_testRunner.ApplyDistortionCalibration = ChkDistortionCalibration.IsChecked == true;
 		_testRunner.UseHarmonicFrequencyAsDistortionReference = ChkDistortionHarmonicReference.IsChecked == true;
 		if (_isExecutingAutoSuite)
@@ -5820,6 +5955,7 @@ public partial class AudioRouting : UserControl
 		_testRunner.PlaybackFrequencyScale = ResolvePlaybackFrequencyScale(config);
 		_testRunner.PlaybackLevelDbFs = PlaybackLevelDbfs;
 		_testRunner.UseCombinedMultitoneFrequencyResponse = IsCombinedMultitoneMethod(config?.FrequencyResponseMethod);
+		if (config?.TestEffect == true) _testRunner.UseCombinedMultitoneFrequencyResponse = false;
 		_testRunner.FeqMicrophoneCalibration = ResolveFeqMicrophoneCalibration();
 		int? recordingChannel = _audioEngine.RecordingChannel;
 		object obj;
@@ -5857,8 +5993,8 @@ public partial class AudioRouting : UserControl
 		_testRunner.MidThdFrequencyHz = ResolveThdFrequency(config?.MidThdFrequency, 1000.0, 250.0, 3999.0);
 		_testRunner.TrebleThdFrequencyHz = ResolveThdFrequency(config?.TrebleThdFrequency, 4000.0, 4000.0, 10000.0);
 		_testRunner.LogSweepVerificationRuns = Math.Clamp(config?.LogSweepRuns ?? 1, 1, 3);
-		_testRunner.LogSweepDurationSeconds = GetSelectedLogSweepDuration();
-		_testRunner.MultitoneDurationSeconds = GetSelectedMultitoneDuration();
+		_testRunner.LogSweepDurationSeconds = config?.LogSweepDurationSeconds ?? GetSelectedLogSweepDuration();
+		_testRunner.MultitoneDurationSeconds = config?.MultitoneDurationSeconds ?? GetSelectedMultitoneDuration();
 		_testRunner.RequireLogSweepPhaseAlignment = config?.RequireLogSweepPhaseAlignment ?? true;
 		_testRunner.MinimumSinadDb = PositiveOrNull(config?.MinimumSinadDb);
 		_testRunner.MinimumSnrDb = PositiveOrNull(config?.MinimumSnrDb);
@@ -5961,8 +6097,9 @@ public partial class AudioRouting : UserControl
 		return value;
 	}
 
-	private void BtnSaveStandard_Click(object sender, RoutedEventArgs e)
+	private async void BtnSaveStandard_Click(object sender, RoutedEventArgs e)
 	{
+		if (C360ModelDefinition.Matches(_activeInOutConfig)) { await RunC360ModelAutoTestAsync(findReference: true, singleTest: _appliedTestConfig ?? _autoTestCases.FirstOrDefault()?.Config); return; }
 		if (_activeMeasurementTask != null || _freqs.Count < 2 || _freqs.Count != _dbValues.Count
 			|| _freqs.Any(f => !double.IsFinite(f) || f <= 0.0) || _dbValues.Any(v => !double.IsFinite(v))
 			|| _testRunner.FeqRepeatabilityInvalid || _testRunner.SilentInputDetected || _testRunner.InputClippingDetected)
@@ -5988,7 +6125,8 @@ public partial class AudioRouting : UserControl
 
 	private MicrophoneCalibration? ResolveFeqMicrophoneCalibration()
 	{
-		return MicrophoneCalibration.ForKtUsbDevice((ComboRecording.SelectedItem as DeviceItem)?.Device?.FriendlyName ?? "");
+		if (_appliedTestConfig?.MicrophoneCalibration is { } attachment) return attachment.Resolve();
+		return MicCalibrations.Resolve(SelectedRecordingDevice?.ID ?? "", SelectedRecordingDevice?.FriendlyName ?? "");
 	}
 
 	private void BtnExportStandard_Click(object sender, RoutedEventArgs e) => BtnSaveStandard_Click(sender, e);
@@ -6014,6 +6152,7 @@ public partial class AudioRouting : UserControl
 			using (StreamWriter streamWriter = new StreamWriter(text))
 			{
 				streamWriter.WriteLine("# LevelBasis=" + _testRunner.CurrentFrequencyResponseLevelBasis);
+				if (_appliedTestConfig != null) streamWriter.WriteLine("# ModelTestConfig=" + AppliedModelTestFingerprint());
 				if (_testRunner.UseLogSweepFrequencyResponse)
 					streamWriter.WriteLine("# ResponseAnalysis=" + ResponseSmoothing.AnalysisId);
 				streamWriter.WriteLine(FormattableString.Invariant($"# SweepSamples={Math.Round(_testRunner.LogSweepDurationSeconds * _audioEngine.PlaybackSampleRate):F0}"));
@@ -6041,6 +6180,7 @@ public partial class AudioRouting : UserControl
 					rawPoints = (sameCapture ? _rawResponse : new Dictionary<double, double>()).OrderBy(p => p.Key).Select(p => new { frequencyHz = p.Key, levelDb = p.Value }).ToArray(),
 					impulseEffectsReference = !sameCapture ? null : _savingCompositeReference ? _pendingEffectsReference
 						: ImpulseEffectReference.From(_testRunner.LastSweepResult?.ImpulseEffects, _testRunner.ImpulseEffectsSettings),
+					polarityReference = !sameCapture ? null : _savingCompositeReference ? _pendingPolarityReference : CurrentPolarityReference(),
 					levelBasis = _testRunner.CurrentFrequencyResponseLevelBasis,
 					sweepSamples = (int)Math.Round(_testRunner.LogSweepDurationSeconds * _audioEngine.PlaybackSampleRate),
 					sampleRate = _audioEngine.PlaybackSampleRate,
@@ -6082,6 +6222,7 @@ public partial class AudioRouting : UserControl
 
 	private async void BtnSaveStandardReference_Click(object sender, RoutedEventArgs e)
 	{
+		if (C360ModelDefinition.Matches(_activeInOutConfig)) { await RunC360ModelAutoTestAsync(findReference: true); return; }
 		CloseRoutingScope();
 		using IDisposable? workflow = TryBeginRoutingWorkflow();
 		if (workflow == null) return;
@@ -6191,6 +6332,7 @@ public partial class AudioRouting : UserControl
 				var validReferenceRuns = new List<Dictionary<double, double>>();
 				var validRawReferenceRuns = new List<IReadOnlyDictionary<double, double>>();
 				var validEffectReferences = new List<ImpulseEffectReference?>();
+				var validPolarityReferences = new List<SweepPolarityReference?>();
 				var validReferenceLevels = new List<double>();
 				int totalRuns = maxRuns;
 				int run = 1;
@@ -6251,6 +6393,7 @@ public partial class AudioRouting : UserControl
 					validReferenceLevels.Add(_testRunner.LastOneKilohertzLevelDbFs);
 					validRawReferenceRuns.Add(new Dictionary<double, double>(_rawResponse));
 					validEffectReferences.Add(ImpulseEffectReference.From(_testRunner.LastSweepResult?.ImpulseEffects, _testRunner.ImpulseEffectsSettings));
+					validPolarityReferences.Add(CurrentPolarityReference());
 					noiseRetriesForCurrentRun = 0;
 
 					// Nếu 2 lượt đầu đã đạt chuẩn độ lặp lại thì không cần đo lượt thứ 3, lấy trung bình theo cặp 1-2
@@ -6335,8 +6478,9 @@ public partial class AudioRouting : UserControl
 					_savingCompositeReference = true;
 					_pendingEffectsReference = ImpulseEffectReference.Average(validEffectReferences[selectedPair.FirstRun - 1],
 						validEffectReferences[selectedPair.SecondRun - 1], _testRunner.ImpulseEffectsSettings.EchoDelayToleranceMs);
+					_pendingPolarityReference = SweepPolarityReference.Combine(validPolarityReferences[selectedPair.FirstRun - 1], validPolarityReferences[selectedPair.SecondRun - 1]);
 					try { SaveReferenceCurve(standardDeviceFileName, list, list2, ParseDoubleSafe(TxtFreqTolerance.Text, 3.0), selectedOneKilohertzLevel); }
-					finally { _savingCompositeReference = false; _pendingEffectsReference = null; }
+					finally { _savingCompositeReference = false; _pendingEffectsReference = null; _pendingPolarityReference = null; }
 					CheckAndLoadStandardDevice();
 					if (!HasComparableStandardCurve() || _standardCurve?.Count != list.Count)
 						throw new InvalidDataException("File line chuẩn vừa lưu không nạp lại được đủ điểm.");
@@ -6601,8 +6745,8 @@ public partial class AudioRouting : UserControl
 			foreach (string name in new[] { "ComboPlayback", "ComboRecording", "ComboRoutingPlaybackChannel",
 				"ComboRoutingRecordingChannel", "ComboPlaybackSampleRate", "ComboPlaybackMode", "ComboSweepLength",
 				"TxtFreqTolerance", "TxtThdLimit", "TxtLogSweepDuration", "TxtMultitoneDuration", "ChkUseLogSweep",
-				"ChkNormalizeOneKilohertz", "SliderPlaybackLevelDbfs", "TxtPlaybackLevelDbfs", "BtnDecreaseLevelDbfs",
-				"BtnIncreaseLevelDbfs", "BtnToggleHeadroom" })
+				"SliderPlaybackLevelDbfs", "TxtPlaybackLevelDbfs", "BtnDecreaseLevelDbfs",
+				"BtnIncreaseLevelDbfs", "BtnToggleHeadroom", "BtnImportMicrophoneCalibration", "ChkDistortionCalibration" })
 				if (FindName(name) is UIElement control)
 				{
 					_lockedRoutingControls[control] = control.IsEnabled;

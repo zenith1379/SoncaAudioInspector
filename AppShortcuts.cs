@@ -34,6 +34,7 @@ public static class AppShortcuts
 
         // 4. Nhóm Thao tác Đo kiểm QA
         new("Ctrl + Shift + I", "Mở thông số lượt đo và phân tích Impulse / ETC", "Đo kiểm QA", "Audio Routing"),
+        new("Ctrl + Shift + Z", "Mở Impedance đo trở kháng thủ công (fixture hai kênh)", "Đo kiểm QA", "Cửa sổ chính"),
         new("Enter", "Xác nhận mã Barcode/Serial & bắt đầu chu trình đo kiểm tự động", "Đo kiểm QA", "Ô quét Serial"),
         new("Esc", "Khôi phục / Thu nhỏ đồ thị Tần số (Freq) & THD về khung hiển thị chuẩn", "Giao diện", "Cửa sổ chính")
     };

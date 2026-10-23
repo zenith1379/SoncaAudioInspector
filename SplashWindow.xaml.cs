@@ -233,9 +233,27 @@ namespace SoncaAudioInspector
                 using var document = System.Text.Json.JsonDocument.Parse(json);
                 if (document.RootElement.TryGetProperty("models", out var models)
                     && models.ValueKind == System.Text.Json.JsonValueKind.Array && models.GetArrayLength() > 0)
-                    AtomicFile.WriteIfUnchanged(path, original, json);
+                    AtomicFile.WriteIfUnchanged(path, original, MergeDownloadedAudioConfiguration(original, json));
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Cập nhật cấu hình nền: " + ex.Message); }
+        }
+
+        internal static string MergeDownloadedAudioConfiguration(string original, string downloaded)
+        {
+            var local = System.Text.Json.JsonSerializer.Deserialize<CheckingConfig>(original);
+            var incoming = System.Text.Json.JsonSerializer.Deserialize<CheckingConfig>(downloaded);
+            if (local == null || incoming == null) return downloaded;
+            foreach (var model in local.models.Where(m => m.AudioConfigUpdatedUtc.HasValue))
+            {
+                var next = incoming.models.FirstOrDefault(m => string.Equals(m.model, model.model, StringComparison.OrdinalIgnoreCase));
+                if (next == null) incoming.models.Add(model);
+                else if (model.AudioConfigUpdatedUtc > (next.AudioConfigUpdatedUtc ?? DateTimeOffset.MinValue))
+                {
+                    next.testItems.InOut = model.testItems.InOut;
+                    next.AudioConfigUpdatedUtc = model.AudioConfigUpdatedUtc;
+                }
+            }
+            return System.Text.Json.JsonSerializer.Serialize(incoming, ModelConfigEditorWindow.JsonOptions);
         }
 
         private async void BtnRetry_Click(object sender, RoutedEventArgs e)

@@ -31,6 +31,7 @@ namespace SoncaAudioInspector
     {
         public double[] SpectrumFrequenciesHz { get; init; } = Array.Empty<double>();
         public double[] SpectrumMagnitudes { get; init; } = Array.Empty<double>();
+        public string AnalysisSource { get; init; } = "SINE_FIT";
     }
 
     public sealed record FrequencySpectrum(double[] FrequenciesHz, double[] Magnitudes);

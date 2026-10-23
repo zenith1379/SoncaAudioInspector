@@ -24,10 +24,23 @@ public class AutoTestCaseItem : INotifyPropertyChanged
 	public string Id { get; set; } = "";
 
 	public string Name { get; set; } = "";
+	public string QualityLabel => Config.SpeakerStage == "MicEffects" ? "• Effect: " : Config.SpeakerStage == "MicFrequencyShift" ? "• Di tần: " : "• Distortion sweep: ";
 
 	public TestConfig Config { get; set; } = new TestConfig();
 
 	public string NoiseStatus { get; set; } = "CHƯA ĐO";
+
+	private IReadOnlyList<ConfiguredTestResult> _additionalResults = Array.Empty<ConfiguredTestResult>();
+	public IReadOnlyList<ConfiguredTestResult> AdditionalResults
+	{
+		get => _additionalResults;
+		set { _additionalResults = value; OnPropertyChanged(nameof(AdditionalResults)); OnPropertyChanged(nameof(AdditionalStatus)); OnPropertyChanged(nameof(AdditionalBrush)); }
+	}
+	public string AdditionalStatus => Config.SpeakerStage is "MicEffects" or "MicFrequencyShift" ? "" : AdditionalResults.Count > 0 ? string.Join(Environment.NewLine, AdditionalResults.Select(r => r.Display))
+		: string.Join(Environment.NewLine, new[] { (Config.TestEffect, "Effect"), (Config.TestAirLeak, "Rò khí"), (Config.TestLooseParticle, "Hạt rác"), (Config.TestSoundLevel, "Mức âm") }
+			.Where(p => p.Item1).Select(p => p.Item2 + ": CHƯA ĐO"));
+	public Brush AdditionalBrush => AdditionalResults.Any(r => r.Status == "FAIL") ? Brushes.Salmon
+		: AdditionalResults.Count == 0 || AdditionalResults.Any(r => !r.Passed) ? Brushes.Gold : Brushes.MediumSpringGreen;
 
 	public string DistortionText { get; set; } = "CHƯA CÓ DỮ LIỆU DISTORTION";
 
@@ -42,6 +55,8 @@ public class AutoTestCaseItem : INotifyPropertyChanged
 	public IReadOnlyDictionary<double, double> UnsmoothedStandardCurve { get; set; } = new Dictionary<double, double>();
 	[System.Text.Json.Serialization.JsonIgnore]
 	public StandardAcousticResult? ImpulseResult { get; set; }
+	[System.Text.Json.Serialization.JsonIgnore]
+	public FrequencyShiftResult? FrequencyShift { get; set; }
 	[System.Text.Json.Serialization.JsonIgnore]
 	public IReadOnlyList<MeasurementValue> MeasurementValues { get; set; } = Array.Empty<MeasurementValue>();
 

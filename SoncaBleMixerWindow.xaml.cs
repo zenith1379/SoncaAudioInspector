@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -83,13 +83,9 @@ public partial class SoncaBleMixerWindow : Window
         _audioRefreshTimer.Start();
         SetTargetModel(_targetModelKeyword);
         if (!_writer.IsConnected) { PanelSettings.Visibility = Visibility.Visible; _settingsOpenedForConnection = true; }
-        await RefreshAudioPeersAsync();
-        if (_windowClosing) return;
         foreach (var device in _ble.DiscoveredDevices) OnDeviceDiscovered(device);
-        if (_writer.IsConnected) { await ReadMixerStateAsync(); return; }
-
-        // Tự động quét tìm loa khi mở cửa sổ
-        try
+        // Advertisement discovery and Windows association can run together.
+        if (!_writer.IsConnected) try
         {
             _ble.StartScanning();
             BtnScan.Content = "⏹ Dừng";
@@ -99,6 +95,8 @@ public partial class SoncaBleMixerWindow : Window
         {
             AppendLog($"Lỗi khởi động quét BLE: {ex.Message}");
         }
+        await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+        if (!_windowClosing) await RefreshAudioPeersAsync();
     }
 
     private void SoncaBleMixerWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -164,7 +162,7 @@ public partial class SoncaBleMixerWindow : Window
     {
         _sliderDebounceTimer.Stop();
         if (_sendingSliderCommand) { _sliderDebounceTimer.Start(); return; }
-        if (!_writer.IsConnected) { ClearPendingCommands(); return; }
+        if (!_writer.IsConnected || IsAudioMeasurementBusy?.Invoke() == true) { ClearPendingCommands(); return; }
 
         List<(byte channel, ushort reg, ushort val, string name)> toSend;
         lock (_pendingCommands)
@@ -179,7 +177,7 @@ public partial class SoncaBleMixerWindow : Window
             int epoch = _commandEpoch;
             foreach (var cmd in toSend)
             {
-                if (epoch != _commandEpoch || !_writer.IsConnected) return;
+                if (epoch != _commandEpoch || !_writer.IsConnected || IsAudioMeasurementBusy?.Invoke() == true) return;
                 byte[] packet = SoncaBleProtocol.BuildParamPacket(cmd.channel, cmd.reg, cmd.val);
                 if (!await _writer.SendPacketAsync(packet, $"{cmd.name}: {cmd.val}"))
                 {
@@ -201,7 +199,7 @@ public partial class SoncaBleMixerWindow : Window
     #region Channel Mute Buttons
     private async void BtnMuteChannel_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button btn || btn.Tag is not string channelTag) return;
+        if (IsAudioMeasurementBusy?.Invoke() == true || sender is not Button btn || btn.Tag is not string channelTag) return;
 
         if (!_knownMuteChannels.Contains(channelTag) || !_writer.SupportsMixerControls || !_busyMuteChannels.Add(channelTag)) return;
         bool currentMute = _channelMuted.TryGetValue(channelTag, out bool isMuted) && isMuted;
@@ -233,43 +231,28 @@ public partial class SoncaBleMixerWindow : Window
         if (sender is not RadioButton rb || rb.Tag is not string tagStr || !byte.TryParse(tagStr, out byte sourceIdx))
             return;
 
-        if (_writer.IsConnected)
-        {
-            byte[] packet = SoncaBleProtocol.BuildInputSourcePacket(sourceIdx);
-            string sourceName = rb.Content?.ToString() ?? $"Nguồn {sourceIdx}";
-            await _writer.SendPacketAsync(packet, $"Chuyển ngõ vào: {sourceName}");
-        }
+        await SwitchInputSourceAsync(sourceIdx);
     }
 
-    private async void ChkFbx_Click(object sender, RoutedEventArgs e)
+    private bool _settingOption;
+    private async void ChkFbx_Click(object sender, RoutedEventArgs e) => await ChangeOptionAsync(SoncaMixerOption.MicFbx, ChkFbx.IsChecked == true);
+    private async void ChkBassBoost_Click(object sender, RoutedEventArgs e) => await ChangeOptionAsync(SoncaMixerOption.BassBoost, ChkBassBoost.IsChecked == true);
+    private async void ChkEnhancer_Click(object sender, RoutedEventArgs e) => await ChangeOptionAsync(SoncaMixerOption.Enhancer, ChkEnhancer.IsChecked == true);
+    private async Task ChangeOptionAsync(SoncaMixerOption option, bool enabled)
     {
-        bool isFbx = ChkFbx.IsChecked == true;
-        byte level = (byte)(isFbx ? 2 : 0); // 2: Cấp 2 tiêu chuẩn khi bật, 0: tắt
-        if (_writer.IsConnected)
+        SetControlAvailability(_writer.IsConnected);
+        if (_settingOption || IsAudioMeasurementBusy?.Invoke() == true || !_writer.IsConnected || !_writer.SupportsMixerControls
+            || !_inputCapabilities.HasValue || !SoncaBleMixerProfile.SupportsOption(_inputCapabilities.Value, option)) return;
+        int epoch = _commandEpoch; _settingOption = true; SetControlAvailability(true);
+        try
         {
-            byte[] packet = SoncaBleProtocol.BuildFbxPacket(level);
-            await _writer.SendPacketAsync(packet, $"Mic FBX chống hú: {(isFbx ? "BẬT (Cấp 2)" : "TẮT")}");
+            bool confirmed = await _writer.SetOptionAsync(option, enabled);
+            if (epoch != _commandEpoch || _windowClosing || !_writer.IsConnected) return;
+            if (_writer.MixerState.TryGetValue(SoncaBleMixerProfile.InputCapabilities, out ushort flags)) _inputCapabilities = flags;
+            AppendLog(confirmed ? $"{option}: loa đã xác nhận trạng thái." : $"{option}: chưa xác nhận, giữ trạng thái đọc lại từ loa.");
         }
-    }
-
-    private async void ChkBassBoost_Click(object sender, RoutedEventArgs e)
-    {
-        bool isBoost = ChkBassBoost.IsChecked == true;
-        if (_writer.IsConnected)
-        {
-            byte[] packet = SoncaBleProtocol.BuildBassBoostPacket(isBoost);
-            await _writer.SendPacketAsync(packet, $"Bass Boost: {(isBoost ? "BẬT" : "TẮT")}");
-        }
-    }
-
-    private async void ChkEnhancer_Click(object sender, RoutedEventArgs e)
-    {
-        bool isEnhancer = ChkEnhancer.IsChecked == true;
-        if (_writer.IsConnected)
-        {
-            byte[] packet = SoncaBleProtocol.BuildEnhancerPacket(isEnhancer);
-            await _writer.SendPacketAsync(packet, $"Enhancer nâng tiếng: {(isEnhancer ? "BẬT" : "TẮT")}");
-        }
+        catch (Exception ex) { AppendLog("Tùy chọn: " + ex.Message); }
+        finally { _settingOption = false; if (epoch == _commandEpoch && !_windowClosing) SetControlAvailability(_writer.IsConnected); }
     }
     #endregion
 
@@ -362,6 +345,7 @@ public partial class SoncaBleMixerWindow : Window
         else
         {
             _autoConnectEnabled = true;
+            _ble.EnableAutomaticConnection();
             _autoAttempted.Clear();
             _ = RefreshAudioPeersAsync();
             _ble.StartScanning();
@@ -397,14 +381,12 @@ public partial class SoncaBleMixerWindow : Window
 
         foreach (var dev in _deviceList.OrderByDescending(d => d.Rssi))
         {
-            bool isSonca = SoncaBleProtocol.IsLikelySoncaDevice(dev.Name);
-            isSonca |= dev.IsLikelySonca;
             string display = $"{dev.Name} ({dev.Rssi} dBm) [{dev.FormattedAddress}]";
             var item = new ComboBoxItem
             {
                 Content = display,
                 Tag = dev.Address,
-                Foreground = isSonca ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981")) : Brushes.White
+                Foreground = Brushes.White
             };
             CmbDevices.Items.Add(item);
 
@@ -447,7 +429,8 @@ public partial class SoncaBleMixerWindow : Window
         BtnScan.IsEnabled = false;
         _autoConnectEnabled = false;
 
-        bool success = await _ble.ConnectAsync(address);
+        _ble.EnableAutomaticConnection();
+        bool success = await Task.Run(() => _ble.ConnectAsync(address));
 
         BtnScan.IsEnabled = true;
         BtnConnect.IsEnabled = !success;
@@ -458,7 +441,7 @@ public partial class SoncaBleMixerWindow : Window
     {
         _autoConnectEnabled = false;
         ClearPendingCommands();
-        _ble.Disconnect();
+        _ble.SuppressAutomaticConnection();
     }
 
     private void OnConnectionStatusChanged(bool connected, string message)

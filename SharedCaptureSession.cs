@@ -27,12 +27,13 @@ public sealed class SharedCaptureSession : IDisposable
             Release();
             return;
         }
-        if (_device?.ID == device.ID && Volatile.Read(ref _failure) == null)
+        if (_device?.ID == device.ID && Volatile.Read(ref _failure) == null
+            && _capture?.WaveFormat.SampleRate == FastTrackDeviceSetup.ReadMixSampleRate(device.ID))
         {
             return;
         }
-        // A USB replug can retain the endpoint ID. Reacquire an invalidated stream
-        // instead of trapping the user in the previous stream's stopped state.
+        // Replugging USB or changing Default Format can retain the endpoint ID.
+        // Reopen the stream when its format no longer matches Windows.
         Release();
         try
         {

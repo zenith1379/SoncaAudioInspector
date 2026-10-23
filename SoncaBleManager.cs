@@ -238,6 +238,7 @@ public sealed partial class SoncaBleManager : IDisposable, ISoncaMixerWriter
         _infoReply?.TrySetCanceled(); _infoReply = null;
         _stateReply?.TrySetCanceled(); _stateReply = null;
         SupportsMixerControls = false;
+        FirmwareIdentity = "";
         MixerState = new Dictionary<ushort, ushort>();
         _replyDecoder.Clear();
         if (_notifyCharacteristic != null)
@@ -269,7 +270,7 @@ public sealed partial class SoncaBleManager : IDisposable, ISoncaMixerWriter
 
     public void Dispose()
     {
+        SuppressAutomaticConnection();
         StopScanning();
-        Disconnect();
     }
 }

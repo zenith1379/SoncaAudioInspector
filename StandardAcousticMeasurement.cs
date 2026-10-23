@@ -15,13 +15,15 @@ public sealed record LogSweepSettings(
     int PointsPerOctave = 12,
     double DecayAnalysisSeconds = 3.0,
     double RecordingGain = 1.0,
-    double ImpulseWindowLeftMs = 2.0,
+    double ImpulseWindowLeftMs = 125.0,
     double ImpulseWindowRightMs = 500.0,
     double FrequencyDependentWindowCycles = 15.0,
     IReadOnlyList<double>? DistortionEvaluationFrequenciesHz = null,
     bool ApplyDistortionCalibration = false,
     bool UseHarmonicFrequencyAsDistortionReference = false,
-    ImpulseEffectSettings? EffectsSettings = null);
+    ImpulseEffectSettings? EffectsSettings = null,
+    bool FrequencyDependentWindowing = false,
+    ImpulseWindowKind ImpulseWindowKind = ImpulseWindowKind.Tukey25);
 
 public sealed record FrequencyResponsePoint(
     double FrequencyHz,
@@ -164,6 +166,7 @@ public sealed record StandardAcousticResult(
     public IReadOnlyList<Complex[]> HarmonicTransferFunctions { get; init; } = Array.Empty<Complex[]>();
     public double ImpulseWindowLeftMs { get; init; }
     public double ImpulseWindowRightMs { get; init; }
+    public ImpulseWindowKind ImpulseWindowKind { get; init; } = ImpulseWindowKind.HalfHann;
     public double GatedMinimumFrequencyHz { get; init; }
     public bool ClockDriftCorrectionApplied { get; init; }
     public double EstimatedClockDriftPpm { get; init; }
@@ -178,6 +181,7 @@ public sealed record StandardAcousticResult(
     public RewDistortionStats? RewDistortion { get; init; }
     public ImpulseEffectResult? ImpulseEffects { get; init; }
     public ImpulsePlotData? ImpulsePlot { get; init; }
+    public HighOrderHarmonicResult? HighOrderHarmonics { get; init; }
 }
 
 public sealed record ComplexTransferAverage(
@@ -240,7 +244,7 @@ public sealed record SpeakerAbnormalityResult(
 /// produce evidence; compliance still requires calibrated hardware, prescribed
 /// geometry, traceable levels and the licensed test standard named by the recipe.
 /// </summary>
-public static class StandardAcousticMeasurement
+public static partial class StandardAcousticMeasurement
 {
     private const double Tiny = 1e-18;
 	private sealed record SweepClockEstimate(
@@ -386,7 +390,35 @@ public static class StandardAcousticMeasurement
         LogSweepSettings settings,
         MicrophoneCalibration? micCalib = null,
         double? measuredPreSweepNoiseFloorDbFs = null)
+        => AnalyzeLogSweep(excitation, recorded, settings, micCalib, measuredPreSweepNoiseFloorDbFs, null);
+
+    public static StandardAcousticResult AnalyzeLogSweep(
+        float[] excitation,
+        float[] recorded,
+        LogSweepSettings settings,
+        MicrophoneCalibration? micCalib,
+        double? measuredPreSweepNoiseFloorDbFs,
+        Action<string, double>? stageCompleted)
+        => AnalyzeLogSweep(excitation, recorded, settings, micCalib, measuredPreSweepNoiseFloorDbFs, stageCompleted, CancellationToken.None);
+
+    public static StandardAcousticResult AnalyzeLogSweep(
+        float[] excitation,
+        float[] recorded,
+        LogSweepSettings settings,
+        MicrophoneCalibration? micCalib,
+        double? measuredPreSweepNoiseFloorDbFs,
+        Action<string, double>? stageCompleted,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        long stageStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        void Stage(string name)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long end = System.Diagnostics.Stopwatch.GetTimestamp();
+            stageCompleted?.Invoke(name, System.Diagnostics.Stopwatch.GetElapsedTime(stageStart, end).TotalMilliseconds);
+            stageStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
         ValidateSettings(settings);
         if (excitation is null || excitation.Length < 1024)
             throw new ArgumentException("Tín hiệu sweep không hợp lệ.", nameof(excitation));
@@ -395,32 +427,35 @@ public static class StandardAcousticMeasurement
         if (excitation.Any(value => !float.IsFinite(value)) || recorded.Any(value => !float.IsFinite(value)))
             throw new ArgumentException("Dữ liệu thu/phát chứa NaN hoặc Infinity; phải đo lại.");
 
-        SweepClockEstimate clockEstimate = EstimateSweepClock(excitation, recorded, settings.SampleRate);
+        var fft = new SweepFourier();
+        SweepClockEstimate clockEstimate = EstimateSweepClockCancellable(excitation, recorded, settings.SampleRate, fft, cancellationToken);
         if (clockEstimate.IsReliable && Math.Abs(clockEstimate.DriftPpm) >= 20.0)
             recorded = CorrectSweepClock(recorded, clockEstimate.SampleScale);
+        Stage("clock");
 
         int fftSize = NextPowerOfTwo(excitation.Length + recorded.Length - 1);
         var inputSpectrum = new Complex[fftSize];
         var outputSpectrum = new Complex[fftSize];
         for (int index = 0; index < excitation.Length; index++) inputSpectrum[index] = excitation[index];
         for (int index = 0; index < recorded.Length; index++) outputSpectrum[index] = recorded[index];
-        Fourier.Forward(inputSpectrum, FourierOptions.Matlab);
-        Fourier.Forward(outputSpectrum, FourierOptions.Matlab);
+        fft.Forward(inputSpectrum, excitation.Length);
+        fft.Forward(outputSpectrum, recorded.Length);
 
         // ── Wiener deconvolution ────────────────────────────────────────────────
         // Dùng cho transfer function / frequency response (ổn định, ít noise).
         var transfer = new Complex[fftSize];
         var sweepCrossCorrelation = new Complex[fftSize];
-        double maxInputPower = inputSpectrum.Max(value => value.Magnitude * value.Magnitude);
+        double maxInputPower = inputSpectrum.Max(value => { double magnitude = value.Magnitude; return magnitude * magnitude; });
         double regularization = Math.Max(Tiny, maxInputPower * 1e-10);
         for (int bin = 0; bin < fftSize; bin++)
         {
-            double inputPower = inputSpectrum[bin].Magnitude * inputSpectrum[bin].Magnitude;
+            double inputMagnitude = inputSpectrum[bin].Magnitude;
+            double inputPower = inputMagnitude * inputMagnitude;
             transfer[bin] = outputSpectrum[bin] * Complex.Conjugate(inputSpectrum[bin])
                 / (inputPower + regularization);
             sweepCrossCorrelation[bin] = outputSpectrum[bin] * Complex.Conjugate(inputSpectrum[bin]);
         }
-        Fourier.Inverse(sweepCrossCorrelation, FourierOptions.Matlab);
+        fft.Inverse(sweepCrossCorrelation);
 
         // Bandpass filter the transfer function to suppress out-of-band division noise (outside sweep range)
         double fMin = settings.StartFrequencyHz * 0.7;
@@ -444,7 +479,8 @@ public static class StandardAcousticMeasurement
         }
 
         var impulseComplex = transfer.ToArray();
-        Fourier.Inverse(impulseComplex, FourierOptions.Matlab);
+        fft.Inverse(impulseComplex);
+        Stage("transfer");
 
         // ── Farina inverse filter deconvolution ───────────────────────────────
         // Theo Farina (2000): inverse filter = time-reversed sweep × e^(-t/L).
@@ -461,7 +497,7 @@ public static class StandardAcousticMeasurement
             double t = i / (double)settings.SampleRate;
             invFilter[i] = excitation[exLen - 1 - i] * Math.Exp(-t / L);
         }
-        Fourier.Forward(invFilter, FourierOptions.Matlab);
+        fft.Forward(invFilter, exLen);
         // Give the inverse filter unity linear gain. Without this factor the
         // reported fundamental level grows with sweep length and is not dBFS.
         int inverseReferenceBin = Math.Clamp((int)Math.Round(
@@ -474,7 +510,8 @@ public static class StandardAcousticMeasurement
         var farinaImpulseSpectrum = new Complex[fftSize];
         for (int bin = 0; bin < fftSize; bin++)
             farinaImpulseSpectrum[bin] = outputSpectrum[bin] * invFilter[bin];
-        Fourier.Inverse(farinaImpulseSpectrum, FourierOptions.Matlab);
+        fft.Inverse(farinaImpulseSpectrum);
+        Stage("farina");
         // farinaImpulseSpectrum là impulse response Farina — harmonic nằm ở chỉ số âm (wrap-around cuối mảng)
         int usefulLength = Math.Min(recorded.Length, fftSize / 2);
         // Direct sound in an acoustic chamber or room arrives within 0 to 1500 ms (including sound card buffer latency).
@@ -494,7 +531,7 @@ public static class StandardAcousticMeasurement
         int directSample = FindEarliestImpulsePeak(impulseComplex, plausibleSearchLimit, arrivalThreshold, strongestSample);
 		int correlationDelay = FindEarliestSweepCorrelationDelay(
 			sweepCrossCorrelation, excitation, recorded, settings.SampleRate,
-			measuredPreSweepNoiseFloorDbFs.HasValue ? 2500.0 : 1500.0);
+			measuredPreSweepNoiseFloorDbFs.HasValue ? 2500.0 : 1500.0, cancellationToken);
 		double impulseDelayCorrelation = CalculateNormalizedSweepCorrelation(excitation, recorded, directSample);
 		double correlationDelayCorrelation = CalculateNormalizedSweepCorrelation(excitation, recorded, correlationDelay);
 		if (correlationDelayCorrelation >= 0.02
@@ -644,13 +681,16 @@ public static class StandardAcousticMeasurement
 
         bool hasPlausibleDirectArrival = !captureIsSilent && sweepDetected && arrivalInRange
             && !diagnostics.Any(item => item.Severity == "INVALID");
-        int preRoll = Math.Min((int)Math.Round(settings.ImpulseWindowLeftMs * settings.SampleRate / 1000.0), directSample);
+        Stage("arrival-validity");
+        // The deconvolution is circular. A direct arrival earlier than 125 ms
+        // must not truncate the requested negative-time window.
+        int preRoll = Math.Min(ImpulsePlotAnalysis.SampleCount(settings.ImpulseWindowLeftMs, settings.SampleRate), fftSize - 1);
         int tailCount = Math.Min(
-            usefulLength - (directSample - preRoll),
+            Math.Min(fftSize, usefulLength - directSample + preRoll),
             Math.Max(1024, (int)Math.Round(settings.DecayAnalysisSeconds * settings.SampleRate) + preRoll));
         var alignedImpulse = new double[Math.Max(0, tailCount)];
         for (int index = 0; index < alignedImpulse.Length; index++)
-            alignedImpulse[index] = impulseComplex[directSample - preRoll + index].Real;
+            alignedImpulse[index] = impulseComplex[Mod(directSample - preRoll + index, fftSize)].Real;
 
         double[] measurementImpulse = alignedImpulse.ToArray();
         double normalize = alignedImpulse.Select(Math.Abs).DefaultIfEmpty(0).Max();
@@ -661,8 +701,7 @@ public static class StandardAcousticMeasurement
         (IReadOnlyList<TimeDomainPoint> impulseResponse,
             IReadOnlyList<TimeDomainPoint> stepResponse,
             IReadOnlyList<TimeDomainPoint> energyTimeCurve) = BuildTimeDomainViews(alignedImpulse, settings.SampleRate, preRoll);
-        // Keep the analysis gate unchanged. The display additionally needs up to
-        // one second of the circular deconvolution before t=0, like REW's IR view.
+        // The display also retains pre-arrival samples outside the analysis window.
         int displayPostCount = alignedImpulse.Length - preRoll;
         int displayPreCount = Math.Min(settings.SampleRate, fftSize - displayPostCount);
         var displayImpulse = new double[displayPreCount + displayPostCount];
@@ -675,6 +714,7 @@ public static class StandardAcousticMeasurement
             FitDecay(decayCurve, "T20", -5, -25),
             FitDecay(decayCurve, "T30", -5, -35)
         };
+        Stage("impulse-views");
         Complex[] alignedTransfer = RemoveTransferDelay(transfer, directSamplePrecise);
         IReadOnlyList<FrequencyResponsePoint> ungatedResponse = BuildFrequencyResponse(
             alignedTransfer,
@@ -686,18 +726,22 @@ public static class StandardAcousticMeasurement
             micCalib);
 		double availableRightMs = Math.Max(0.1,
 			(measurementImpulse.Length - preRoll - 1) * 1000.0 / settings.SampleRate);
-		double adaptiveMaximumRightMs = Math.Min(settings.ImpulseWindowRightMs, availableRightMs);
+        double actualLeftMs = preRoll * 1000.0 / settings.SampleRate;
+        double adaptiveMaximumRightMs = Math.Min(ImpulsePlotAnalysis.SampleCount(settings.ImpulseWindowRightMs,
+            settings.SampleRate) * 1000.0 / settings.SampleRate, availableRightMs);
         double gatedMinimumFrequencyHz = settings.StartFrequencyHz;
         IReadOnlyList<FrequencyResponsePoint> response = BuildFrequencyDependentWindowResponse(
             measurementImpulse, settings.SampleRate, preRoll,
             settings.StartFrequencyHz, settings.EndFrequencyHz, settings.PointsPerOctave,
-			micCalib, settings.ImpulseWindowLeftMs, adaptiveMaximumRightMs,
-			settings.FrequencyDependentWindowCycles);
+			micCalib, actualLeftMs, adaptiveMaximumRightMs,
+			settings.FrequencyDependentWindowCycles, settings.FrequencyDependentWindowing, settings.ImpulseWindowKind);
+		var ungatedByFrequency = ungatedResponse.ToDictionary(point => point.FrequencyHz);
 		var gateDeltas = response
 			.Where(point => point.FrequencyHz >= 200.0 && point.FrequencyHz <= 10000.0)
 			.Select(point =>
 			{
-				FrequencyResponsePoint nearestUngated = ungatedResponse
+				FrequencyResponsePoint nearestUngated = ungatedByFrequency.TryGetValue(point.FrequencyHz, out var exact)
+                    ? exact : ungatedResponse
 					.OrderBy(candidate => Math.Abs(Math.Log(candidate.FrequencyHz / point.FrequencyHz)))
 					.First();
 				return Math.Abs(point.NormalizedLevelDb - nearestUngated.NormalizedLevelDb);
@@ -709,10 +753,11 @@ public static class StandardAcousticMeasurement
 			diagnostics.Add(new MeasurementDiagnostic(
 				"FREQUENCY_WINDOW_EFFECT",
 				"WARN",
-				$"Cửa sổ phụ thuộc tần số lệch transfer ungated trung vị {gateDeltas[gateDeltas.Length / 2]:F1} dB.",
-				"Kiểm tra direct impulse và phản xạ trong buồng; đồ thị vẫn giữ cửa sổ thích nghi để không trộn toàn bộ phản xạ phòng."));
+				$"Đáp tuyến qua cửa sổ IR lệch transfer ungated trung vị {gateDeltas[gateDeltas.Length / 2]:F1} dB.",
+				"Kiểm tra direct impulse, phản xạ và cấu hình cửa sổ IR trước khi diễn giải đáp tuyến."));
 		}
         // Tìm đỉnh direct sound trong Farina impulse (nửa đầu mảng — harmonic nằm ở wrap cuối).
+        Stage("frequency-response");
         int farinaSearchLimit = Math.Min(fftSize / 2, recorded.Length);
         int farinaDirectSample = 0;
         double farinaPeak = 0;
@@ -722,7 +767,7 @@ public static class StandardAcousticMeasurement
             if (mag > farinaPeak) { farinaPeak = mag; farinaDirectSample = i; }
         }
         IReadOnlyList<SweepHarmonicPoint> sweepHarmonics = BuildSweepHarmonicResponse(
-            farinaImpulseSpectrum, (double)farinaDirectSample, settings, micCalib, out Complex[][] harmonicTransferFunctions);
+            farinaImpulseSpectrum, (double)farinaDirectSample, settings, micCalib, fft, out Complex[][] harmonicTransferFunctions);
 		SweepHarmonicPoint? referenceDistortion = sweepHarmonics
 			.OrderBy(point => Math.Abs(Math.Log(point.FundamentalFrequencyHz / 1000.0)))
 			.FirstOrDefault();
@@ -744,6 +789,7 @@ public static class StandardAcousticMeasurement
             preRoll,
             settings.StartFrequencyHz,
             settings.EndFrequencyHz);
+        Stage("harmonics-waterfall");
 
         (double c50, double d50) = CalculateClarity(alignedImpulse, settings.SampleRate, preRoll, 0.050);
         (double c80, _) = CalculateClarity(alignedImpulse, settings.SampleRate, preRoll, 0.080);
@@ -778,6 +824,9 @@ public static class StandardAcousticMeasurement
         }
 
         string validity = acquisitionInvalid ? "INVALID" : "DIAGNOSTIC";
+        var highOrders = acquisitionInvalid ? HighOrderHarmonicResult.Unavailable("Bản thu sweep không hợp lệ; đo lại trước khi đọc H10–H35.")
+            : BuildHighOrderHarmonics(farinaImpulseSpectrum, farinaDirectSample, settings, micCalib, harmonicTransferFunctions, fft);
+        Stage("high-order-harmonics");
         if (acquisitionInvalid)
         {
             c50 = c80 = d50 = double.NaN;
@@ -793,7 +842,7 @@ public static class StandardAcousticMeasurement
         if (string.IsNullOrWhiteSpace(warning))
             warning = "Phép thu hợp lệ để chẩn đoán; chưa phải chứng nhận nếu thiếu mic hiệu chuẩn, timing reference và fixture chuẩn.";
 
-        return new StandardAcousticResult(
+        var result = new StandardAcousticResult(
             settings.SampleRate,
             directSample,
             directArrivalMs,
@@ -828,18 +877,22 @@ public static class StandardAcousticMeasurement
             AlignedTransferFunction = alignedTransfer,
             UngatedFrequencyResponse = ungatedResponse,
             SweepHarmonics = sweepHarmonics,
+            HighOrderHarmonics = highOrders,
             HarmonicTransferFunctions = harmonicTransferFunctions,
-            ImpulseWindowLeftMs = settings.ImpulseWindowLeftMs,
+            ImpulseWindowLeftMs = actualLeftMs,
             ImpulseWindowRightMs = adaptiveMaximumRightMs,
+            ImpulseWindowKind = settings.ImpulseWindowKind,
             GatedMinimumFrequencyHz = gatedMinimumFrequencyHz,
             ClockDriftCorrectionApplied = clockEstimate.IsCorrectionApplied,
             EstimatedClockDriftPpm = clockEstimate.DriftPpm,
             ClockFitRmsSamples = clockEstimate.FitRmsSamples,
-            FrequencyDependentWindowing = true,
+            FrequencyDependentWindowing = settings.FrequencyDependentWindowing,
             FrequencyDependentWindowCycles = settings.FrequencyDependentWindowCycles,
             OctaveBandRt60 = CalculateOctaveBandRt60(alignedImpulse, settings.SampleRate, preRoll),
             RewDistortion = CalculateRewDistortionStats(sweepHarmonics)
         };
+        Stage("decay-effects");
+        return result;
     }
 
     public static Complex[] NormalizeComplexTransferAtFrequency(
@@ -974,18 +1027,21 @@ public static class StandardAcousticMeasurement
         double minFrequency,
         double maxFrequency,
         int pointsPerOctave,
-        MicrophoneCalibration? micCalib = null)
+        MicrophoneCalibration? micCalib = null,
+        LogSweepSettings? windowSettings = null)
     {
         if (alignedTransfer is null || alignedTransfer.Length < 4)
             throw new ArgumentException("Transfer function không hợp lệ.", nameof(alignedTransfer));
 		Complex[] impulse = alignedTransfer.ToArray();
-		Fourier.Inverse(impulse, FourierOptions.Matlab);
-		int preRoll = Math.Max(1, (int)Math.Round(.002 * sampleRate));
-		var realImpulse = new double[impulse.Length + preRoll];
+		new SweepFourier().Inverse(impulse);
+		var settings = windowSettings ?? new LogSweepSettings(SampleRate: sampleRate);
+		int preRoll = Math.Min(impulse.Length - 2, ImpulsePlotAnalysis.SampleCount(settings.ImpulseWindowLeftMs, sampleRate));
+		var realImpulse = new double[impulse.Length];
 		for (int i = 0; i < realImpulse.Length; i++) realImpulse[i] = impulse[(i - preRoll + impulse.Length) % impulse.Length].Real;
-		double maximumRightMs = Math.Min(500.0, Math.Max(8.0, (impulse.Length - 1) * 1000.0 / sampleRate));
+		double maximumRightMs = Math.Min(settings.ImpulseWindowRightMs, (realImpulse.Length - preRoll - 1) * 1000.0 / sampleRate);
 		return BuildFrequencyDependentWindowResponse(realImpulse, sampleRate, preRoll,
-			minFrequency, maxFrequency, pointsPerOctave, micCalib, 2.0, maximumRightMs, 15.0);
+			minFrequency, maxFrequency, pointsPerOctave, micCalib, settings.ImpulseWindowLeftMs, maximumRightMs,
+            settings.FrequencyDependentWindowCycles, settings.FrequencyDependentWindowing, settings.ImpulseWindowKind);
     }
 
     public static PinkNoiseResult AnalyzePinkNoise(float[] samples, int sampleRate)
@@ -1448,23 +1504,35 @@ public static class StandardAcousticMeasurement
         return median / 0.6744897501960817;
     }
 
-	private static SweepClockEstimate EstimateSweepClock(float[] excitation, float[] recorded, int sampleRate)
+	private static SweepClockEstimate EstimateSweepClock(float[] excitation, float[] recorded, int sampleRate, SweepFourier fft)
+		=> EstimateSweepClockCancellable(excitation, recorded, sampleRate, fft, CancellationToken.None);
+
+	private static SweepClockEstimate EstimateSweepClockCancellable(float[] excitation, float[] recorded, int sampleRate, SweepFourier fft, CancellationToken cancellationToken)
 	{
+		cancellationToken.ThrowIfCancellationRequested();
 		int segmentLength = Math.Clamp(Math.Min(excitation.Length / 24, sampleRate / 24), 1024, 2048);
 		if (excitation.Length < segmentLength * 4 || recorded.Length < segmentLength * 4)
 			return new SweepClockEstimate(false, 1.0, 0.0, double.NaN);
 
+		// All anchors search the same immutable capture. Reuse its FFT and power
+		// prefix within this estimate, including refinement passes. Never cache
+		// across measurements or mutate these spectra during convolution.
+		var captureSpectra = new Dictionary<int, (Complex[] Capture, Complex[] Convolution)>();
+		var prefixPower = new double[recorded.Length + 1];
+		for (int index = 0; index < recorded.Length; index++)
+			prefixPower[index + 1] = prefixPower[index] + recorded[index] * recorded[index];
 		double[] positions = { 0.12, 0.215, 0.31, 0.405, 0.50, 0.595, 0.69, 0.785, 0.88 };
 		List<(double ExcitationSample, double RecordedSample, double Correlation)> CollectAnchors(double templateScale)
 		{
 			var result = new List<(double, double, double)>();
 			foreach (double position in positions)
 			{
+				cancellationToken.ThrowIfCancellationRequested();
 				int segmentStart = Math.Clamp(
 					(int)Math.Round(position * (excitation.Length - segmentLength)),
 					0, excitation.Length - segmentLength);
 				(double recordedStart, double correlation) = FindBestSweepSegmentMatch(
-					excitation, segmentStart, segmentLength, recorded, templateScale);
+					excitation, segmentStart, segmentLength, recorded, templateScale, captureSpectra, prefixPower, fft);
 				if (recordedStart >= 0 && correlation >= 0.025)
 					result.Add((segmentStart, recordedStart, correlation));
 			}
@@ -1512,13 +1580,23 @@ public static class StandardAcousticMeasurement
 		int segmentStart,
 		int segmentLength,
 		float[] recorded,
-		double templateScale)
+		double templateScale,
+		Dictionary<int, (Complex[] Capture, Complex[] Convolution)> captureSpectra,
+		double[] prefixPower,
+		SweepFourier fft)
 	{
 		int templateLength = Math.Max(32, (int)Math.Round(segmentLength * templateScale));
 		int fftSize = NextPowerOfTwo(recorded.Length + templateLength - 1);
-		var recordedSpectrum = new Complex[fftSize];
-		var reversedTemplateSpectrum = new Complex[fftSize];
-		for (int index = 0; index < recorded.Length; index++) recordedSpectrum[index] = recorded[index];
+		if (!captureSpectra.TryGetValue(fftSize, out var buffers))
+		{
+			buffers = (new Complex[fftSize], new Complex[fftSize]);
+			for (int index = 0; index < recorded.Length; index++) buffers.Capture[index] = recorded[index];
+			fft.Forward(buffers.Capture, recorded.Length);
+			captureSpectra.Add(fftSize, buffers);
+		}
+		var recordedSpectrum = buffers.Convolution;
+		var reversedTemplateSpectrum = buffers.Convolution;
+		Array.Clear(reversedTemplateSpectrum);
 
 		double mean = 0.0;
 		for (int index = 0; index < templateLength; index++)
@@ -1541,14 +1619,10 @@ public static class StandardAcousticMeasurement
 			templatePower += value * value;
 			reversedTemplateSpectrum[templateLength - 1 - index] = value;
 		}
-		Fourier.Forward(recordedSpectrum, FourierOptions.Matlab);
-		Fourier.Forward(reversedTemplateSpectrum, FourierOptions.Matlab);
-		for (int bin = 0; bin < fftSize; bin++) recordedSpectrum[bin] *= reversedTemplateSpectrum[bin];
-		Fourier.Inverse(recordedSpectrum, FourierOptions.Matlab);
+		fft.Forward(reversedTemplateSpectrum, templateLength);
+		for (int bin = 0; bin < fftSize; bin++) recordedSpectrum[bin] = buffers.Capture[bin] * reversedTemplateSpectrum[bin];
+		fft.Inverse(recordedSpectrum);
 
-		double[] prefixPower = new double[recorded.Length + 1];
-		for (int index = 0; index < recorded.Length; index++)
-			prefixPower[index + 1] = prefixPower[index] + recorded[index] * recorded[index];
 		int bestStart = -1;
 		double bestCorrelation = 0.0;
 		int maximumStart = recorded.Length - templateLength;
@@ -1625,33 +1699,39 @@ public static class StandardAcousticMeasurement
 		MicrophoneCalibration? micCalib,
 		double leftMs,
 		double maximumRightMs,
-		double windowCycles)
+		double windowCycles,
+        bool frequencyDependentWindowing,
+        ImpulseWindowKind windowKind)
 	{
 		maxFrequency = Math.Min(maxFrequency, sampleRate * 0.475);
 		int pointCount = Math.Max(2,
 			(int)Math.Floor(Math.Log(maxFrequency / minFrequency, 2.0) * pointsPerOctave) + 1);
 		var raw = new List<(double Frequency, double Level, double Phase)>(pointCount);
-		int leftSamples = Math.Min(directIndex, Math.Max(0, (int)Math.Round(leftMs * sampleRate / 1000.0)));
+		int leftSamples = Math.Min(directIndex, Math.Max(0, ImpulsePlotAnalysis.SampleCount(leftMs, sampleRate)));
+        double actualLeftSeconds = leftSamples / (double)sampleRate;
+        int fixedRightSamples = Math.Min(impulse.Count - directIndex - 1,
+            Math.Max(1, ImpulsePlotAnalysis.SampleCount(maximumRightMs, sampleRate)));
+        double[]? fixedGate = frequencyDependentWindowing ? null : ImpulsePlotAnalysis.ApplyWindow(
+            impulse, sampleRate, directIndex, leftSamples * 1000.0 / sampleRate,
+            fixedRightSamples * 1000.0 / sampleRate, windowKind);
 		for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
 		{
 			double frequency = minFrequency * Math.Pow(2.0, pointIndex / (double)pointsPerOctave);
 			if (frequency > maxFrequency) break;
-			// REW-style FDW: a constant number of cycles makes the time window shrink
-			// smoothly as frequency rises, after applying the configured IR limits.
-			double rightMs = Math.Min(maximumRightMs, windowCycles * 1000.0 / frequency);
+			double rightMs = frequencyDependentWindowing ? Math.Min(maximumRightMs, windowCycles * 1000.0 / frequency) : maximumRightMs;
 			int rightSamples = Math.Min(impulse.Count - directIndex - 1,
-				Math.Max(1, (int)Math.Round(rightMs * sampleRate / 1000.0)));
+				Math.Max(1, ImpulsePlotAnalysis.SampleCount(rightMs, sampleRate)));
 			Complex value = Complex.Zero;
+            Complex step = Complex.FromPolarCoordinates(1, -2 * Math.PI * frequency / sampleRate);
+            Complex phasor = Complex.FromPolarCoordinates(1, 2 * Math.PI * frequency * leftSamples / sampleRate);
 			for (int offset = -leftSamples; offset <= rightSamples; offset++)
 			{
 				int sampleIndex = directIndex + offset;
-				double weight;
-				if (offset < 0)
-					weight = leftSamples == 0 ? 1.0 : 0.5 - 0.5 * Math.Cos(Math.PI * (offset + leftSamples) / leftSamples);
-				else
-					weight = 0.5 + 0.5 * Math.Cos(Math.PI * offset / rightSamples);
-				double phase = -2.0 * Math.PI * frequency * offset / sampleRate;
-				value += impulse[sampleIndex] * weight * Complex.FromPolarCoordinates(1.0, phase);
+                double sample = fixedGate is not null ? fixedGate[sampleIndex] : impulse[sampleIndex] *
+                    ImpulsePlotAnalysis.WindowWeight(offset / (double)sampleRate, actualLeftSeconds,
+                        rightSamples / (double)sampleRate, windowKind);
+                value += sample * phasor;
+                phasor *= step;
 			}
 			double level = 20.0 * Math.Log10(value.Magnitude + Tiny)
 				- (micCalib?.GetGainCorrectionDb(frequency) ?? 0.0);
@@ -1675,28 +1755,6 @@ public static class StandardAcousticMeasurement
 		return result;
 	}
 
-    private static double[] BuildGatedImpulse(
-        IReadOnlyList<double> impulse,
-        int sampleRate,
-        int directIndex,
-        double leftMs,
-        double rightMs)
-    {
-        var output = new double[impulse.Count];
-        int start = Math.Max(0, directIndex - (int)Math.Round(leftMs * sampleRate / 1000.0));
-        int end = Math.Min(impulse.Count - 1, directIndex + (int)Math.Round(rightMs * sampleRate / 1000.0));
-        int leftLength = Math.Max(1, directIndex - start);
-        int rightLength = Math.Max(1, end - directIndex);
-        for (int index = start; index <= end; index++)
-        {
-            double window = index <= directIndex
-                ? directIndex == start ? 1.0 : 0.5 - 0.5 * Math.Cos(Math.PI * (index - start) / leftLength)
-                : 0.5 + 0.5 * Math.Cos(Math.PI * (index - directIndex) / rightLength);
-            output[index] = impulse[index] * window;
-        }
-        return output;
-    }
-
     private static Complex[] BuildTransferFromImpulse(IReadOnlyList<double> impulse, int fftSize)
     {
         var spectrum = new Complex[fftSize];
@@ -1710,6 +1768,7 @@ public static class StandardAcousticMeasurement
         double directSample,
         LogSweepSettings settings,
         MicrophoneCalibration? micCalib,
+        SweepFourier fft,
         out Complex[][] harmonicTransferFunctions)
     {
         int fftSize = impulse.Count;
@@ -1718,13 +1777,14 @@ public static class StandardAcousticMeasurement
 
         // Tính offset sample cho từng order (theo Farina 2000):
         // offset_n = duration × ln(n) / ln(f2/f1) × fs
-        var offsets = new double[10];
-        for (int n = 1; n <= 9; n++)
+        var offsets = new double[11];
+        for (int n = 1; n <= 10; n++)
             offsets[n] = n == 1 ? 0.0 : settings.DurationSeconds * Math.Log(n) / logRatio * sampleRate;
 
         // Isolate orders at their predicted Farina times. Longer sweeps allow
         // wider gates and retain more decay without merging adjacent orders.
-        int defaultLeft  = Math.Max(8, (int)Math.Round(Math.Max(50.0, settings.ImpulseWindowLeftMs) * sampleRate / 1000.0));
+        // Harmonic isolation is independent of the fundamental IR display/FEQ window.
+        int defaultLeft  = Math.Max(8, (int)Math.Round(50.0 * sampleRate / 1000.0));
         // Harmonic orders need a compact, non-overlapping Farina window. The wider
         // IR/FDW limit used for frequency response must not merge adjacent orders.
         int defaultRight = Math.Max(32, (int)Math.Round(settings.ImpulseWindowRightMs * sampleRate / 1000.0));
@@ -1736,10 +1796,10 @@ public static class StandardAcousticMeasurement
             // Giới hạn window bởi khoảng cách đến order liền kề để tránh overlap.
             // gap_prev = offset[order] - offset[order-1],  gap_next = offset[order+1] - offset[order]
             double gapPrev = order > 1 ? offsets[order] - offsets[order - 1] : double.MaxValue;
-            double gapNext = order < 9 ? offsets[order + 1] - offsets[order] : double.MaxValue;
+            double gapNext = offsets[order + 1] - offsets[order];
             // Higher orders precede this impulse (left); lower orders follow it
             // (right). Keep the gates disjoint, but retain the causal decay.
-            int maxHalfLeft  = order < 9 ? (int)Math.Floor(gapNext * 0.45) : defaultLeft;
+            int maxHalfLeft  = (int)Math.Floor(gapNext * 0.45);
             int maxHalfRight = order > 1 ? (int)Math.Floor(gapPrev * 0.45) : defaultRight;
             int left  = Math.Clamp(defaultLeft,  8, Math.Max(8,  maxHalfLeft));
             int right = Math.Clamp(defaultRight, 8, Math.Max(8,  maxHalfRight));
@@ -1762,7 +1822,7 @@ public static class StandardAcousticMeasurement
                 }
             }
 
-            Fourier.Forward(windowed, FourierOptions.Matlab);
+            fft.Forward(windowed, Math.Min(fftSize, left + right + 1));
             spectra[order] = windowed;
         }
 
@@ -1803,11 +1863,57 @@ public static class StandardAcousticMeasurement
 	            .OrderBy(frequency => frequency)
 	            .ToArray();
 	        var output = new List<SweepHarmonicPoint>(evaluationFrequencies.Length);
+        // A fixed, long harmonic IR gate includes broadband and late energy in
+        // every harmonic. Evaluate each order through a frequency-dependent
+        // time window instead of RMS-adding all FFT-bin magnitudes in a band.
+        // Retain the raw complex transfers for coherent repeat averaging.
+        var harmonicWindows = new Complex[10][];
+        var harmonicCenters = new int[10];
+        var harmonicFft = new SweepFourier();
+        double sweepLogRatio = Math.Log(settings.EndFrequencyHz / settings.StartFrequencyHz);
+        for (int order = 2; order <= 9; order++)
+        {
+            Complex[] spectrum = harmonicTransfers[order];
+            if (spectrum.Length == 0) { harmonicWindows[order] = Array.Empty<Complex>(); continue; }
+            var impulse = spectrum.ToArray();
+            harmonicFft.Inverse(impulse);
+            double Offset(int n) => settings.DurationSeconds * Math.Log(n) / sweepLogRatio * settings.SampleRate;
+            int left = Math.Clamp((int)Math.Round(.05 * settings.SampleRate), 8,
+                Math.Max(8, (int)Math.Floor((Offset(order + 1) - Offset(order)) * .45)));
+            int right = Math.Clamp((int)Math.Round(settings.ImpulseWindowRightMs * settings.SampleRate / 1000), 8,
+                Math.Max(8, (int)Math.Floor((Offset(order) - Offset(order - 1)) * .45)));
+            int length = Math.Min(impulse.Length, left + right + 1);
+            harmonicWindows[order] = impulse.Take(length).ToArray();
+            // A delayed nonlinear path must retain its own arrival, including
+            // the known delayed-harmonic regression. Avoid chasing weak noise.
+            int peak = 0;
+            for (int i = 1; i < length; i++) if (impulse[i].Magnitude > impulse[peak].Magnitude) peak = i;
+            double median = impulse.Take(length).Select(v => v.Magnitude).OrderBy(v => v).ElementAt(length / 2);
+            harmonicCenters[order] = impulse[peak].Magnitude > median * 8 ? peak : Math.Min(left, length - 1);
+        }
+        // Cache H1 bin powers for its overlapping normalization bands.
+        double[][]? bandPowers = null;
+        if (settings.PointsPerOctave > 24)
+        {
+            bandPowers = new double[10][];
+            // Only H1 still uses spectral-band normalization. Harmonic
+            // magnitudes below are evaluated through their time windows.
+            {
+                Complex[] spectrum = harmonicTransfers[1];
+                var powers = new double[spectrum.Length / 2];
+                for (int bin = 1; bin < powers.Length; bin++)
+                {
+                    double magnitude = spectrum[bin].Magnitude;
+                    powers[bin] = magnitude * magnitude;
+                }
+                bandPowers[1] = powers;
+            }
+        }
 	        foreach (double frequency in evaluationFrequencies)
 	        {
             // REW sweep distortion uses 1/24-octave spectral smoothing. This
             // analysis bandwidth is independent of the 1/48-octave display grid.
-            double fundamental = DistortionBandMagnitude(harmonicTransfers[1], frequency, settings.SampleRate);
+            double fundamental = DistortionBandMagnitude(harmonicTransfers[1], frequency, settings.SampleRate, bandPowers?[1]);
             if (fundamental <= 1e-5) continue;
             var levels = Enumerable.Repeat(double.NaN, 10).ToArray();
             double harmonicPower = 0;
@@ -1831,8 +1937,8 @@ public static class StandardAcousticMeasurement
 	                // frequency. A fundamental at f therefore appears at n*f in
 	                // that spectrum (Farina swept-sine distortion mapping).
                 double reference = settings.UseHarmonicFrequencyAsDistortionReference
-                    ? DistortionBandMagnitude(harmonicTransfers[1], outputFrequency, settings.SampleRate) : fundamental;
-                double ratio = reference > Tiny ? DistortionBandMagnitude(harmonicTransfers[order], outputFrequency, settings.SampleRate) / reference : double.NaN;
+                    ? DistortionBandMagnitude(harmonicTransfers[1], outputFrequency, settings.SampleRate, bandPowers?[1]) : fundamental;
+                double ratio = reference > Tiny ? DistortionWindowMagnitude(harmonicWindows[order], harmonicCenters[order], outputFrequency, settings.SampleRate) / reference : double.NaN;
                 if (micCalib != null && settings.ApplyDistortionCalibration)
                     ratio *= Math.Pow(10.0, -(micCalib.GetGainCorrectionDb(outputFrequency)
                         - micCalib.GetGainCorrectionDb(settings.UseHarmonicFrequencyAsDistortionReference ? outputFrequency : frequency)) / 20.0);
@@ -1857,7 +1963,30 @@ public static class StandardAcousticMeasurement
         return output;
     }
 
-    private static double DistortionBandMagnitude(Complex[] spectrum, double frequency, int sampleRate)
+    private static double DistortionWindowMagnitude(Complex[] impulse, int center, double frequency, int sampleRate)
+    {
+        // 48 cycles gives a relative frequency resolution of about 1/48 octave.
+        // Shrinking the time support at higher frequencies rejects late noise
+        // without subtracting a guessed noise level from measured harmonics.
+        double halfWidth = Math.Max(4, 24.0 * sampleRate / frequency);
+        int first = Math.Max(0, (int)Math.Ceiling(center - halfWidth));
+        int last = Math.Min(impulse.Length - 1, (int)Math.Floor(center + halfWidth));
+        double angle = -2 * Math.PI * frequency / sampleRate;
+        var step = new Complex(Math.Cos(angle), Math.Sin(angle));
+        var rotation = Complex.FromPolarCoordinates(1, angle * (first - center));
+        Complex sum = Complex.Zero;
+        for (int i = first; i <= last; i++)
+        {
+            double position = Math.Abs(i - center) / halfWidth;
+            double weight = position <= .75 ? 1 : .5 + .5 * Math.Cos(Math.PI * (position - .75) / .25);
+            sum += impulse[i] * rotation * weight;
+            rotation *= step;
+            if ((i & 1023) == 1023) rotation = Complex.FromPolarCoordinates(1, angle * (i + 1 - center));
+        }
+        return sum.Magnitude;
+    }
+
+    private static double DistortionBandMagnitude(Complex[] spectrum, double frequency, int sampleRate, double[]? binPowers = null)
     {
         double bin = frequency * spectrum.Length / sampleRate;
         double halfBand = Math.Pow(2.0, 1.0 / 48.0);
@@ -1865,7 +1994,11 @@ public static class StandardAcousticMeasurement
         int last = Math.Min(spectrum.Length / 2 - 1, (int)Math.Floor(bin * halfBand));
         if (first > last) return spectrum[Math.Clamp((int)Math.Round(bin), 1, spectrum.Length / 2 - 1)].Magnitude;
         double power = 0;
-        for (int i = first; i <= last; i++) power += spectrum[i].Magnitude * spectrum[i].Magnitude;
+        for (int i = first; i <= last; i++)
+        {
+            double magnitude = binPowers == null ? spectrum[i].Magnitude : 0;
+            power += binPowers == null ? magnitude * magnitude : binPowers[i];
+        }
         return Math.Sqrt(power / (last - first + 1));
     }
 
@@ -2138,7 +2271,8 @@ public static class StandardAcousticMeasurement
             throw new ArgumentOutOfRangeException(nameof(settings.Amplitude), "Biên độ sweep phải lớn hơn 0 và không vượt quá 1 (0 dBFS).");
         if (!double.IsFinite(settings.RecordingGain) || settings.RecordingGain <= 0 || settings.RecordingGain > 20)
             throw new ArgumentOutOfRangeException(nameof(settings.RecordingGain));
-        if (!double.IsFinite(settings.ImpulseWindowLeftMs) || settings.ImpulseWindowLeftMs < 0.2 || settings.ImpulseWindowLeftMs > 20)
+        if (!Enum.IsDefined(settings.ImpulseWindowKind)) throw new ArgumentOutOfRangeException(nameof(settings.ImpulseWindowKind));
+        if (!double.IsFinite(settings.ImpulseWindowLeftMs) || settings.ImpulseWindowLeftMs < 0.2 || settings.ImpulseWindowLeftMs > 500)
             throw new ArgumentOutOfRangeException(nameof(settings.ImpulseWindowLeftMs));
         if (!double.IsFinite(settings.ImpulseWindowRightMs) || settings.ImpulseWindowRightMs < 2 || settings.ImpulseWindowRightMs > 500)
             throw new ArgumentOutOfRangeException(nameof(settings.ImpulseWindowRightMs));
@@ -2232,8 +2366,10 @@ public static class StandardAcousticMeasurement
         float[] excitation,
         float[] recorded,
         int sampleRate,
-        double maximumDelayMs)
+        double maximumDelayMs,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int maximumByData = Math.Max(0, recorded.Length - Math.Max(1, excitation.Length / 2));
         int maximumByTime = Math.Max(0, (int)Math.Round(maximumDelayMs * sampleRate / 1000.0));
         int limit = Math.Min(Math.Min(maximumByData, maximumByTime), crossCorrelation.Count - 1);
@@ -2241,10 +2377,43 @@ public static class StandardAcousticMeasurement
         double strongestMagnitude = 0.0;
         for (int delay = 0; delay <= limit; delay++)
         {
+            if ((delay & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
             double magnitude = crossCorrelation[delay].Magnitude;
             if (magnitude <= strongestMagnitude) continue;
             strongestMagnitude = magnitude;
             strongestDelay = delay;
+        }
+
+        // With a silent capture every lag is a flat zero "local maximum".
+        // The old loop then recomputed a full N-sample dot product at every
+        // delay (over 57 billion iterations for 512K / 2.5 s at 44.1 kHz).
+        if (strongestMagnitude == 0) return strongestDelay;
+
+        double[] inputPower = new double[excitation.Length + 1];
+        double[] outputPower = new double[recorded.Length + 1];
+        for (int i = 0; i < excitation.Length; i++)
+        {
+            if ((i & 8191) == 0) cancellationToken.ThrowIfCancellationRequested();
+            double sample = excitation[i]; inputPower[i + 1] = inputPower[i] + sample * sample;
+        }
+        for (int i = 0; i < recorded.Length; i++)
+        {
+            if ((i & 8191) == 0) cancellationToken.ThrowIfCancellationRequested();
+            double sample = recorded[i]; outputPower[i + 1] = outputPower[i] + sample * sample;
+        }
+        double NormalizedAt(int delay)
+        {
+            int count = Math.Min(excitation.Length, recorded.Length - delay);
+            if (count < excitation.Length / 2) return 0;
+            double power = outputPower[delay + count] - outputPower[delay];
+            // The existing zero-padded FFT correlation already contains the
+            // linear dot product for this lag. Keep direct summation around the
+            // acceptance boundary (or unstable power subtraction) so the gate
+            // cannot change due to FFT/prefix roundoff. Final reported scores
+            // still use the original direct calculation below the caller.
+            double normalized = Math.Abs(crossCorrelation[delay].Real) / Math.Sqrt(inputPower[count] * Math.Max(0, power) + Tiny);
+            return !double.IsFinite(normalized) || power <= outputPower[delay + count] * 1e-10 || Math.Abs(normalized - .02) <= 1e-8
+                ? CalculateNormalizedSweepCorrelation(excitation, recorded, delay) : normalized;
         }
 
         // A reflection can be stronger than the direct sound. Anchor the impulse gate to
@@ -2261,11 +2430,12 @@ public static class StandardAcousticMeasurement
         double threshold = Math.Max(strongestMagnitude * 0.20, background * 8.0);
         for (int delay = 1; delay < limit; delay++)
         {
+            if ((delay & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
             double magnitude = crossCorrelation[delay].Magnitude;
             if (magnitude >= threshold
                 && magnitude >= crossCorrelation[delay - 1].Magnitude
                 && magnitude >= crossCorrelation[delay + 1].Magnitude
-                && CalculateNormalizedSweepCorrelation(excitation, recorded, delay) >= 0.02)
+                && NormalizedAt(delay) >= 0.02)
                 return delay;
         }
         return strongestDelay;

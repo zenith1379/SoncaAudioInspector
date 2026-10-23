@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using Windows.Devices.Bluetooth;
@@ -24,6 +24,12 @@ internal static class BleConnectionChecks
         var preferred = SoncaAudioInspector.SoncaBleDiscovery.Preferred(new[] { other, response }, new[] { new SoncaAudioInspector.BluetoothAudioPeer(audio, "KBEATBOX") });
         if (preferred?.Address != ble || SoncaAudioInspector.SoncaBleDiscovery.Preferred(new[] { other }, new[] { new SoncaAudioInspector.BluetoothAudioPeer(audio, "KBEATBOX") }) != null)
             throw new Exception("Controller selection followed RSSI instead of the connected peer address.");
+        if (!SoncaAudioInspector.SoncaBleDiscovery.MatchesAudioPeer(ble, new[] { new SoncaAudioInspector.BluetoothAudioPeer(audio, "KBEATBOX") })
+            || SoncaAudioInspector.SoncaBleDiscovery.MatchesAudioPeer(0, new[] { new SoncaAudioInspector.BluetoothAudioPeer(audio, "KBEATBOX") })
+            || SoncaAudioInspector.SoncaBleDiscovery.Preferred(new[] { response, other }, new[] { new SoncaAudioInspector.BluetoothAudioPeer(audio, "A"), new SoncaAudioInspector.BluetoothAudioPeer(other.Address ^ 0x010000000000UL, "B") }) != null
+            || !SoncaAudioInspector.SoncaUsbRecordingEndpoint.MatchesC360("Headset Microphone (C360 usb audio)")
+            || SoncaAudioInspector.SoncaUsbRecordingEndpoint.MatchesC360("Microphone (6- USB Audio Device)"))
+            throw new Exception("Automatic peer/USB-C selection accepted an ambiguous or unrelated endpoint.");
         Console.WriteLine("PASS unnamed Sonca service, merged scan response, unrelated-radio rejection and unique connected-peer association.");
     }
 
@@ -60,6 +66,35 @@ internal static class BleConnectionChecks
             || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x3140, 50) || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x6400, 8193)
             || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x6448, 2)) throw new Exception("Unsafe legacy address or gain encoding accepted.");
         Console.WriteLine("PASS captured 216-parameter C360 frame at every split, coalesced packets, CRC recovery, config query and control bounds.");
+        decoder.Clear();
+        SoncaAudioInspector.SoncaBleMixerProfile.TryReadSnapshot(decoder.Push(config).Single(), out var snapshot);
+        var available = Enumerable.Range(0, 6).Where(i => SoncaAudioInspector.SoncaBleMixerProfile.CanSelectInputSource(snapshot, (byte)i)).ToArray();
+        if (!available.SequenceEqual(new[] { 0, 1, 4, 5 })
+            || SoncaAudioInspector.SoncaBleMixerProfile.CanSelectInputSource(new Dictionary<ushort, ushort>(), 0)
+            || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x3048, 1)
+            || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x6254, 1)
+            || SoncaAudioInspector.SoncaBleMixerProfile.CanWrite(0x6242, 6)
+            || !SoncaAudioInspector.SoncaBleMixerProfile.TryReadInputSource(0x101, out byte packed) || packed != 1
+            || SoncaAudioInspector.SoncaBleMixerProfile.TryReadInputSource(0x107, out _))
+            throw new Exception("Input source capability/readback bounds failed.");
+        var infoFrame = Convert.FromHexString("004801005343415F4D41494E34385F433336302E43333630002D04332056455220413A312E312E352C20433A312E362E372D415420323032365F30395F33303A31383A30383A31330A85");
+        decoder.Clear();
+        var info = decoder.Push(infoFrame).Single();
+        int modelMarker = Array.IndexOf(info.Payload, (byte)'-');
+        if (!SoncaAudioInspector.SoncaBleMixerProfile.SupportsInfo(info) || modelMarker < 0
+            || ((info.Payload[modelMarker + 1] << 8) | info.Payload[modelMarker + 2]) != 1075
+            || SoncaAudioInspector.SoncaBleMixerProfile.InputSourceName(5) != "THẺ NHỚ (SD/TF)")
+            throw new Exception("Captured C360 INFO model/source-5 label mismatch.");
+        string firmware = SoncaAudioInspector.SoncaBuildIdentity.Firmware(info);
+        if (!firmware.Contains("A:1.1.5") || !firmware.Contains("C:1.6.7") || !firmware.Contains("2026_09_30")) throw new Exception("Firmware INFO version not decoded.");
+        foreach (var option in Enum.GetValues<SoncaAudioInspector.SoncaMixerOption>())
+        {
+            ushort flags = 30152, mask = SoncaAudioInspector.SoncaBleMixerProfile.OptionMask(option);
+            ushort on = SoncaAudioInspector.SoncaBleMixerProfile.WithOption(flags, option, true), off = SoncaAudioInspector.SoncaBleMixerProfile.WithOption(on, option, false);
+            if (off != flags || (on ^ flags) != mask) throw new Exception("Option changed unrelated bits.");
+        }
+        Console.WriteLine("PASS firmware A/C/build identity and masked Mic FBX/Bass boost/Enhancer preserve all input flags.");
+        Console.WriteLine("PASS captured C360 INFO model 1075 and source capabilities: BT/USB music/LINE IN/SD-TF; blocked unsupported ports/legacy address/flags write/invalid mode.");
     }
 
     public static async Task ConnectControlAsync(bool exerciseControls = false)

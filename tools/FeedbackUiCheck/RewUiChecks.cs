@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Windows;
@@ -23,7 +23,7 @@ internal static class RewUiChecks
         routingType.GetField("_audioEngine", hidden)!.SetValue(routing, engine);
         routingType.GetField("_testRunner", hidden)!.SetValue(routing, runner);
         routingType.GetField("_isConfigLoaded", hidden)!.SetValue(routing, true);
-        if (((CheckBox)routing.FindName("ChkNormalizeOneKilohertz")).IsChecked != false)
+        if (routing.FindName("ChkNormalizeOneKilohertz") != null)
             throw new Exception("Fresh response is normalized; absolute dBFS must be the default.");
         var rateCombo = (ComboBox)routing.FindName("ComboPlaybackSampleRate");
         if (!rateCombo.Items.OfType<ComboBoxItem>().Any(i => i.Tag?.ToString() == "48000")) throw new Exception("48 kHz cannot be selected for REW comparison.");
@@ -42,6 +42,10 @@ internal static class RewUiChecks
             ((CheckBox)routing.FindName("ChkDistortionCalibration")).IsChecked = true;
             ((CheckBox)routing.FindName("ChkDistortionHarmonicReference")).IsChecked = true;
             routingType.GetMethod("SaveConfig", hidden)!.Invoke(routing, null);
+            string legacyConfigPath = (string)routingType.GetMethod("GetRoutingConfigPath", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!;
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(legacyConfigPath))!;
+            legacy["NormalizeFrequencyResponseToOneKilohertz"] = true;
+            File.WriteAllText(legacyConfigPath, legacy.ToJsonString());
             using var reloadedEngine = (IDisposable)Activator.CreateInstance(engineType)!;
             object reloadedRunner = Activator.CreateInstance(runnerType, reloadedEngine)!;
             var reloaded = (UserControl)Activator.CreateInstance(routingType)!;
@@ -49,7 +53,8 @@ internal static class RewUiChecks
             routingType.GetField("_testRunner", hidden)!.SetValue(reloaded, reloadedRunner);
             routingType.GetMethod("LoadConfig", hidden)!.Invoke(reloaded, null);
             double restored = (double)runnerType.GetProperty("LogSweepDurationSeconds")!.GetValue(reloadedRunner)!;
-            if (Math.Round(restored * rate) != length || ((CheckBox)reloaded.FindName("ChkNormalizeOneKilohertz")).IsChecked != false
+            if (Math.Round(restored * rate) != length || reloaded.FindName("ChkNormalizeOneKilohertz") != null
+                || (bool)runnerType.GetProperty("NormalizeFrequencyResponseToOneKilohertz")!.GetValue(reloadedRunner)!
                 || !(bool)runnerType.GetProperty("ApplyDistortionCalibration")!.GetValue(reloadedRunner)!
                 || !(bool)runnerType.GetProperty("UseHarmonicFrequencyAsDistortionReference")!.GetValue(reloadedRunner)!)
                 throw new Exception($"Restart did not restore {length}/{rate}, absolute level and distortion options.");

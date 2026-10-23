@@ -1,4 +1,4 @@
-<UserControl x:Class="SoncaAudioInspector.AudioRouting"
+﻿<UserControl x:Class="SoncaAudioInspector.AudioRouting"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -41,6 +41,7 @@
     </UserControl.Resources>
 
     <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="SetupColumn" Width="0" MinWidth="0" MaxWidth="700"/>
             <ColumnDefinition x:Name="SplitterColumn" Width="Auto"/>
@@ -48,7 +49,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar Controls & Setup -->
-        <Border Name="PanelSetup" Grid.Column="0" Background="#121214" BorderBrush="#27272A" BorderThickness="0,0,1,0" Padding="20" Visibility="Collapsed">
+        <Border Name="PanelSetup" Grid.Row="1" Grid.Column="0" Background="#121214" BorderBrush="#27272A" BorderThickness="0,0,1,0" Padding="20" Visibility="Collapsed">
             <ScrollViewer Name="SidebarScrollViewer" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <!-- AUDIO ROUTING SETUP -->
@@ -86,7 +87,8 @@
                                     HorizontalAlignment="Right" Padding="8,3" Margin="0,2,0,5"
                                     ToolTip="Xóa toàn bộ thiết bị Bluetooth đã ghép có tên thuộc model đang chọn, kể cả thiết bị cũ không kết nối"/>
                             <TextBlock Name="TxtPlaybackFormat" Text="Định dạng: chưa chọn thiết bị"
-                                       FontSize="10" Foreground="#71717A" Margin="0,0,0,8"/>
+                                       FontSize="11" Foreground="#A1A1AA" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       ToolTip="Default Format là thiết lập trong Windows Sound. Shared là định dạng Windows dùng để xử lý; 32-bit Float không làm thiết bị 16-bit thành bộ chuyển đổi 32-bit."/>
 
                             <!-- Kênh phát (Out Channel) giống Đo Nâng Cao -->
                             <Grid Name="GridRoutingPlaybackChannel" Margin="0,0,0,8" Visibility="Collapsed">
@@ -173,7 +175,16 @@
                                 </ComboBox.Resources>
                             </ComboBox>
                             <TextBlock Name="TxtRecordingFormat" Text="Định dạng: chưa chọn thiết bị"
-                                       FontSize="10" Foreground="#71717A" Margin="0,0,0,8"/>
+                                       FontSize="11" Foreground="#A1A1AA" TextWrapping="Wrap" Margin="0,0,0,8"
+                                       ToolTip="Default Format là thiết lập trong Windows Sound. Shared là định dạng luồng xử lý; rate của bản thu thực tế được lưu theo từng lượt đo."/>
+                            <Button Name="BtnImportMicrophoneCalibration" Content="Chọn file calibration…"
+                                    Style="{StaticResource ModernButtonStyle}" Click="BtnImportMicrophoneCalibration_Click"
+                                    HorizontalContentAlignment="Left" Margin="0,0,0,8" Padding="8,5"
+                                    ToolTip="Chọn file calibration cho ngõ thu. Nhấp phải để bỏ calibration.">
+                                <Button.ContextMenu><ContextMenu>
+                                    <MenuItem Header="Bỏ calibration của ngõ thu" Click="ClearMicrophoneCalibration_Click"/>
+                                </ContextMenu></Button.ContextMenu>
+                            </Button>
 
                             <!-- Kênh thu (Mic / In Channel) giống Đo Nâng Cao -->
                             <Grid Name="GridRoutingRecordingChannel" Margin="0,0,0,8" Visibility="Collapsed">
@@ -297,16 +308,9 @@
 
                     <Separator Background="#27272A" Margin="0,0,0,20"/>
 
-                    <CheckBox Name="ChkNormalizeOneKilohertz" Content="CHUẨN HÓA ĐÁP TUYẾN THEO 1 kHz (0 dBr)"
-                              IsChecked="False" Checked="NormalizeOneKilohertz_Changed" Unchecked="NormalizeOneKilohertz_Changed"
-                              IsEnabled="{Binding IsEnabled, ElementName=BtnStart}"
-                              Foreground="#F4F4F5" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,8"
-                              ToolTip="Trừ mức thu tại 1 kHz khỏi mọi điểm đáp tuyến. Mức thu 1 kHz thực vẫn hiện riêng bằng dBFS."/>
-                    <TextBlock Text="Mỗi chế độ dùng file line chuẩn riêng; mức thu 1 kHz thực vẫn được kiểm tra trước khi đánh giá."
-                               Foreground="#71717A" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,16"/>
                     <TextBlock Name="TxtOneKilohertzLevel" Text="Mức thu 1 kHz: chưa đo" Foreground="#A1A1AA"
                                FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,14"
-                               ToolTip="Mức tại 1 kHz suy ra từ phép đo đáp tuyến, trước khi trừ mốc 1 kHz. Chênh lệch so với chuẩn là mức thu, không phải dBr của đường đã chuẩn hóa."/>
+                               ToolTip="Mức thu tuyệt đối tại 1 kHz suy ra từ phép đo đáp tuyến, tính bằng dBFS."/>
                     <TextBlock Name="TxtOneKilohertzToneLevel" Text="Tone 1 kHz: chưa đo" Foreground="#A1A1AA"
                                FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,14"
                                ToolTip="RMS dBFS và peak của bản thu tone 1 kHz thật; 0 dBFS là mức số tối đa, peak gần 1 có nguy cơ clipping."/>
@@ -321,6 +325,8 @@
                         <Button Name="BtnSaveStandard" Grid.Column="1" Content="LƯU LINE CHUẨN" ToolTip="Lưu line chuẩn thành file theo cấu hình đo; ứng dụng sẽ tự nạp lại khi mở." Click="BtnSaveStandard_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="5,0,0,0" IsEnabled="False"/>
                     </Grid>
                     <Button Name="BtnSaveStandardReference" Content="TÌM LINE CHUẨN" Click="BtnSaveStandardReference_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Height="42" Margin="0,0,0,20"/>
+                    <Button Name="BtnImpedance" Content="IMPEDANCE · ĐO TRỞ KHÁNG THỦ CÔNG" Click="BtnImpedance_Click" Style="{StaticResource BlueButtonStyle}" Height="42" Margin="0,0,0,14"/>
+
                     <Button Name="BtnNoiseTest" Content="ĐO NỀN NHIỄU (IM LẶNG)" Click="BtnNoiseTest_Click" Style="{StaticResource BlueButtonStyle}" FontWeight="Bold" Margin="0,0,0,20" Height="38" Visibility="Collapsed"/>
 
                     <!-- Automated Checklist -->
@@ -350,7 +356,7 @@
         </Border>
 
         <!-- Splitter để kéo chỉnh độ rộng của phần Cấu hình đường âm thanh -->
-        <GridSplitter x:Name="SetupSplitter" Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+        <GridSplitter x:Name="SetupSplitter" Grid.Row="1" Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
                       Background="#141416" ShowsPreview="False" Cursor="SizeWE" Visibility="Collapsed">
             <GridSplitter.Template>
                 <ControlTemplate TargetType="{x:Type GridSplitter}">
@@ -366,7 +372,7 @@
         </GridSplitter>
 
         <!-- Right Panel (Charts & Verdict) -->
-        <Grid Grid.Column="2">
+        <Grid Grid.Row="1" Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -404,7 +410,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="ĐÁP TUYẾN 1/24 OCTAVE · 50 Hz–18 kHz" FontSize="12" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center"/>
+                                <TextBlock Name="TxtFrequencyChartHeading" Text="ĐÁP TUYẾN 1/24 OCTAVE · 50 Hz–18 kHz" FontSize="12" FontWeight="Bold" Foreground="#10B981" VerticalAlignment="Center"/>
                                 <TextBlock Name="TxtFreqStatus" Grid.Column="1" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
                                 <Button Name="BtnToggleFreqFullscreen" Grid.Column="2" Click="BtnToggleFreqFullscreen_Click" Style="{StaticResource ModernButtonStyle}" Width="28" Height="24" Padding="0" Margin="4,0,0,0" ToolTip="Phóng to đồ thị tần số (Ẩn các phần khác để nhìn rõ tần số và dB)" VerticalAlignment="Center">
                                     <Viewbox Width="13" Height="13">
@@ -445,7 +451,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="DISTORTION" FontSize="12" FontWeight="Bold" Foreground="#3B82F6" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Name="TxtQualityChartHeading" Grid.Column="0" Text="DISTORTION" FontSize="12" FontWeight="Bold" Foreground="#3B82F6" VerticalAlignment="Center" Margin="0,0,10,0"/>
 
                                 <Border Name="BorderThdVerdictBadge" Grid.Column="1" Background="#1C1917" BorderBrush="#78350F" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="0,0,8,0" VerticalAlignment="Center">
                                     <TextBlock Name="TxtThdVerdictBadge" Text="CHƯA ĐO" FontSize="10" FontWeight="Bold" Foreground="#FBBF24"/>
@@ -454,7 +460,7 @@
                                 <TextBlock Name="TxtThdStatus" Grid.Column="2" Text="" FontSize="11" FontWeight="Bold" Foreground="#FA4B4B" Margin="0,0,10,0" VerticalAlignment="Center"/>
 
                                 <!-- Selector kiểm tra THD theo tần số đặt gọn bên phải -->
-                                <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <StackPanel Name="PanelThdInspection" Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                     <TextBlock Text="Tần số kiểm tra:" FontSize="11" Foreground="#A1A1AA" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <ComboBox Name="ComboThdInspectFreq" Width="140" Height="26" Style="{StaticResource DarkComboBoxStyle}"
                                               IsEditable="True" SelectionChanged="ComboThdInspectFreq_SelectionChanged"
@@ -544,14 +550,13 @@
                                                         <TextBlock Text="{Binding Name}" Foreground="#71717A" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,4"/>
 
                                                         <StackPanel Orientation="Vertical" Margin="0,2,0,0">
-                                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                                                <TextBlock Text="• Đáp tuyến: " FontSize="11" Foreground="#A1A1AA"/>
-                                                                <TextBlock Text="{Binding FreqStatus}" FontSize="11" Foreground="{Binding FreqBrush}" FontWeight="SemiBold"/>
-                                                            </StackPanel>
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Text="• Distortion sweep: " FontSize="11" Foreground="#A1A1AA"/>
-                                                                <TextBlock Text="{Binding ThdStatus}" FontSize="11" Foreground="{Binding ThdBrush}" FontWeight="SemiBold"/>
-                                                            </StackPanel>
+                                                            <TextBlock TextWrapping="Wrap" FontSize="11" Margin="0,0,0,2">
+                                                                <Run Text="• Đáp tuyến: " Foreground="#A1A1AA"/><Run Text="{Binding FreqStatus}" Foreground="{Binding FreqBrush}" FontWeight="SemiBold"/>
+                                                            </TextBlock>
+                                                            <TextBlock TextWrapping="Wrap" FontSize="11">
+                                                                <Run Text="{Binding QualityLabel, Mode=OneWay}" Foreground="#A1A1AA"/><Run Text="{Binding ThdStatus, Mode=OneWay}" Foreground="{Binding ThdBrush}" FontWeight="SemiBold"/>
+                                                            </TextBlock>
+                                                            <TextBlock Text="{Binding AdditionalStatus}" Foreground="{Binding AdditionalBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                                         </StackPanel>
                                                     </StackPanel>
                                                     <TextBlock Grid.Column="1" Text="{Binding StatusDisplay}" FontWeight="Black" FontSize="16" VerticalAlignment="Center" Foreground="{Binding StatusBrush}" Margin="10,0,0,0"/>
@@ -575,6 +580,7 @@
                             <StackPanel HorizontalAlignment="Center">
                                 <TextBlock Text="KẾT QUẢ TỔNG" FontSize="11" FontWeight="Bold" Foreground="#71717A" HorizontalAlignment="Center"/>
                                 <TextBlock Name="LblVerdict" Text="ĐANG CHỜ..." FontSize="28" FontWeight="Black" Foreground="#A1A1AA" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                                <TextBlock Name="TxtMeasurementTiming" Text="" FontSize="11" Foreground="#A1A1AA" TextWrapping="Wrap" HorizontalAlignment="Center" Margin="8,2"/>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="8,5" Visibility="Collapsed">
                                     <TextBlock Name="TxtMeasurementSummary" Text="Chưa có thông số đo" FontSize="11" Foreground="#D4D4D8" TextWrapping="Wrap" MaxWidth="700" VerticalAlignment="Center"/>
                                 </StackPanel>

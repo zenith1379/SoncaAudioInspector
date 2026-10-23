@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Windows;
@@ -25,16 +25,63 @@ internal static class Program
         typeof(Application).GetField("_startupUri", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(app, null);
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (args.Length > 1 && args[1] == "--impedance-ui")
+        { ImpedanceUiChecks.Run(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return; }
+        if (args.Length > 1 && args[1] == "--c360-model-ui")
+        {
+            try { C360ModelUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3]), args.Contains("--live"), args.Contains("--reference"), args.FirstOrDefault(a => a.StartsWith("--model-config="))?.Split('=',2)[1], args.FirstOrDefault(a => a.StartsWith("--test-id="))?.Split('=',2)[1], args.Contains("--run-button")); }
+            finally
+            {
+                var manager = assembly.GetType("SoncaAudioInspector.SoncaBleManager")!.GetProperty("Instance")!.GetValue(null)!;
+                manager.GetType().GetMethod("Disconnect")!.Invoke(manager, null);
+                app.Shutdown();
+            }
+            return;
+        }
+        if (args.Length > 1 && args[1] == "--ble-options-ui")
+        {
+            BleOptionsUiChecks.Run(assembly); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--measurement-cancellation-ui")
+        {
+            MeasurementCancellationUiChecks.Run(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--signal-diagnostics-ui")
+        {
+            SignalDiagnosticUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3])); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--mechanical-ui")
+        {
+            MechanicalUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3])); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--measurement-diagnosis-ui")
+        {
+            MeasurementDiagnosisUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3])); app.Shutdown(); return;
+        }
         app.Dispatcher.UnhandledExceptionFilter += (_, e) =>
         {
             Console.Error.WriteLine(e.Exception);
             e.RequestCatch = false;
         };
-        if (args.Length > 1 && args[1] == "--impulse-view-only")
+        if (args.Length > 1 && args[1] == "--sample-rate-refresh-ui")
+        {
+            SampleRateRefreshUiChecks.Run(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--dense-render-check")
+        {
+            ImpulsePerformanceUiChecks.CheckDenseRendering(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return;
+        }
+        if (args.Length > 1 && (args[1] == "--impulse-view-only" || args[1] == "--impulse-performance-only"))
         {
             var options = new System.Text.Json.JsonSerializerOptions { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
             object result = System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(args[3]), assembly.GetType("SoncaAudioInspector.StandardAcousticResult")!, options)!;
-            ImpulseGraphUiChecks.Check(assembly, result, Path.GetFullPath(args[2])); app.Shutdown(); return;
+            if (args[1] == "--impulse-performance-only") ImpulsePerformanceUiChecks.Run(assembly, result, Path.GetFullPath(args[2]));
+            else ImpulseGraphUiChecks.Check(assembly, result, Path.GetFullPath(args[2]));
+            app.Shutdown(); return;
+        }
+        if (args.Length > 1 && args[1] == "--ble-startup-performance")
+        {
+            BleMixerUiChecks.Performance(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return;
         }
         if (args.Length > 1 && args[1] == "--ble-mixer-ui")
         {
@@ -236,7 +283,8 @@ internal static class Program
                 return routing;
             }
             var first = CreateRouting(normalizationEngine, normalizationRunner);
-            ((CheckBox)first.FindName("ChkNormalizeOneKilohertz")).IsChecked = true;
+            if (first.FindName("ChkNormalizeOneKilohertz") != null) throw new Exception("Normalization option was not removed.");
+            normalizationRunnerType.GetProperty("NormalizeFrequencyResponseToOneKilohertz")!.SetValue(normalizationRunner, false);
             var parseNumber = normalizationRoutingType.GetMethod("ParseDoubleSafe", privateInstance)!;
             if ((double)parseNumber.Invoke(first, new object[] { "3,0", 0.0 })! != 3.0
                 || (double)parseNumber.Invoke(first, new object[] { "0,50", 0.0 })! != 0.5)
@@ -266,6 +314,7 @@ internal static class Program
                 normalizationRoutingType.GetMethod("SaveConfig", privateInstance)!.Invoke(first, null);
                 var oldConfig = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(configPath))!;
                 oldConfig["LogSweepDurationSeconds"] = 65536.0 / 44100.0;
+                oldConfig["NormalizeFrequencyResponseToOneKilohertz"] = true;
                 File.WriteAllText(configPath, oldConfig.ToJsonString());
                 var reloadedEngine = Activator.CreateInstance(assembly.GetType("SoncaAudioInspector.AudioEngine")!)!;
                 var reloadedRunner = Activator.CreateInstance(normalizationRunnerType, reloadedEngine)!;
@@ -274,9 +323,9 @@ internal static class Program
                 if (Math.Abs((double)normalizationRoutingType.GetProperty("PlaybackLevelDbfs")!.GetValue(configReload)!) > 0.001
                     || ((CheckBox)configReload.FindName("ChkSendToServer")).IsChecked != true)
                     throw new Exception("Saved 0 dBFS or server upload default was not restored.");
-                if (((CheckBox)configReload.FindName("ChkNormalizeOneKilohertz")).IsChecked != true
-                    || !(bool)normalizationRunnerType.GetProperty("NormalizeFrequencyResponseToOneKilohertz")!.GetValue(reloadedRunner)!)
-                    throw new Exception("Restarted view did not restore the 1 kHz normalization setting");
+                if (configReload.FindName("ChkNormalizeOneKilohertz") != null
+                    || (bool)normalizationRunnerType.GetProperty("NormalizeFrequencyResponseToOneKilohertz")!.GetValue(reloadedRunner)!)
+                    throw new Exception("Legacy 1 kHz normalization was not disabled");
                 path = (string)normalizationRoutingType.GetMethod("GetStandardDeviceFileName", privateInstance)!.Invoke(configReload, null)!;
                 normalizationRoutingType.GetMethod("SaveReferenceCurve", privateInstance)!.Invoke(configReload,
                     new object?[] { path, new[] { 500.0, 1000.0, 2000.0 }, new[] { -6.0, 0.0, 6.0 }, 3.0, -20.0 });
@@ -600,16 +649,31 @@ internal static class Program
             app.Shutdown();
             return;
         }
-        if (args.Length > 1 && args[1] == "--advanced-upgrade-only")
+        if (args.Length > 1 && (args[1] == "--advanced-upgrade-only" || args[1] == "--ir-window-settings-only"))
         {
             var measurementEngine = Activator.CreateInstance(assembly.GetType("SoncaAudioInspector.AudioEngine")!)!;
             var measurementView = (UserControl)Activator.CreateInstance(
                 assembly.GetType("SoncaAudioInspector.StandardMeasurementWindow")!, measurementEngine)!;
-            foreach (string required in new[] { "TxtIrLeftMs", "TxtIrRightMs", "HarmonicsTab", "PlotHarmonics", "TransientTab", "PlotTransient" })
+            foreach (string required in args[1] == "--advanced-upgrade-only"
+                ? new[] { "TxtIrLeftMs", "TxtIrRightMs", "HarmonicsTab", "PlotHarmonics", "TransientTab", "PlotTransient" }
+                : new[] { "TxtIrLeftMs", "TxtIrRightMs", "ChkFdw", "TxtFdwCycles" })
                 if (measurementView.FindName(required) == null) throw new Exception($"Missing upgraded advanced control: {required}");
             if (measurementView.FindName("BtnExport") != null || measurementView.FindName("BtnGolden") != null)
                 throw new Exception("Advanced report/golden controls remain");
-            Console.WriteLine("PASS advanced UI has gate controls, ESS harmonics and transient plots without report/golden controls.");
+            var left = (TextBox)measurementView.FindName("TxtIrLeftMs");
+            var right = (TextBox)measurementView.FindName("TxtIrRightMs");
+            var fdw = (CheckBox)measurementView.FindName("ChkFdw");
+            var cycles = (TextBox)measurementView.FindName("TxtFdwCycles");
+            if (left.Text != "125" || right.Text != "500" || fdw.IsChecked != false || cycles.IsEnabled)
+                throw new Exception("Advanced sweep defaults differ from Tukey 125/500 ms, FDW off.");
+            fdw.IsChecked = true;
+            cycles.GetBindingExpression(UIElement.IsEnabledProperty)!.UpdateTarget();
+            if (!cycles.IsEnabled) throw new Exception("Explicit FDW control did not enable its cycle count.");
+            measurementView.GetType().GetMethod("ReleaseDeviceItems")!.Invoke(measurementView, null);
+            ((IDisposable)measurementEngine).Dispose();
+            if (args[1] == "--advanced-upgrade-only")
+                Console.WriteLine("PASS advanced UI has gate controls, ESS harmonics and transient plots without report/golden controls.");
+            Console.WriteLine("PASS advanced sweep uses 125/500 ms by default, with FDW off and an explicit opt-in cycle control.");
             app.Shutdown();
             return;
         }

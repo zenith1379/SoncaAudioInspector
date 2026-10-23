@@ -223,15 +223,15 @@
                                     </StackPanel>
                                     <StackPanel Margin="0,0,12,4">
                                         <TextBlock Text="Trước đỉnh (ms)" FontSize="11" Foreground="#A1A1AA"/>
-                                        <TextBox x:Name="TxtIrLeftMs" Text="2" Width="65" Height="28" Padding="6,3" Background="#121214" Foreground="#FFFFFF" BorderBrush="#3F3F46" ToolTip="Cửa sổ gate trước đỉnh impulse"/>
+                                        <TextBox x:Name="TxtIrLeftMs" Text="125" Width="65" Height="28" Padding="6,3" Background="#121214" Foreground="#FFFFFF" BorderBrush="#3F3F46" ToolTip="Cửa sổ Tukey 0,25 trước đỉnh impulse; làm tròn theo mẫu thu"/>
                                     </StackPanel>
                                     <StackPanel Margin="0,0,12,4">
                                         <TextBlock Text="Sau đỉnh tối đa (ms)" FontSize="11" Foreground="#A1A1AA"/>
                                         <TextBox x:Name="TxtIrRightMs" Text="500" Width="65" Height="28" Padding="6,3" Background="#121214" Foreground="#FFFFFF" BorderBrush="#3F3F46" ToolTip="Giới hạn cửa sổ sau đỉnh impulse"/>
                                     </StackPanel>
                                     <StackPanel Margin="0,0,12,4">
-                                        <TextBlock Text="FDW (chu kỳ)" FontSize="11" Foreground="#A1A1AA"/>
-                                        <TextBox x:Name="TxtFdwCycles" Text="15" Width="65" Height="28" Padding="6,3" Background="#121214" Foreground="#FFFFFF" BorderBrush="#3F3F46" ToolTip="Số chu kỳ của cửa sổ phụ thuộc tần số, tương tự REW FDW"/>
+                                        <CheckBox x:Name="ChkFdw" Content="Bật FDW (chu kỳ)" IsChecked="False" FontSize="11" Foreground="#A1A1AA" ToolTip="Mặc định tắt: dùng cửa sổ Tukey cố định 125 / 500 ms"/>
+                                        <TextBox x:Name="TxtFdwCycles" Text="15" IsEnabled="{Binding IsChecked, ElementName=ChkFdw}" Width="65" Height="28" Padding="6,3" Background="#121214" Foreground="#FFFFFF" BorderBrush="#3F3F46" ToolTip="Số chu kỳ của cửa sổ phụ thuộc tần số, chỉ áp dụng khi bật FDW"/>
                                     </StackPanel>
                                     <StackPanel Margin="0,0,12,4">
                                         <TextBlock Text="Kênh phát (Out)" FontSize="11" Foreground="#A1A1AA"/>

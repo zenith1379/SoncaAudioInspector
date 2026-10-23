@@ -19,6 +19,15 @@ public sealed record MeasurementDiagnosisEvidence
     public string AcquisitionIssue { get; init; } = "";
     public bool DistortionValid { get; init; }
     public bool HasComparableReference { get; init; }
+    public bool NormalizedAtOneKilohertz { get; init; }
+    public double MeasuredOneKilohertzDbFs { get; init; } = double.NaN;
+    public double ReferenceOneKilohertzDbFs { get; init; } = double.NaN;
+    public bool HasEffectEvidence { get; init; }
+    public bool EffectClassificationReliable { get; init; }
+    public bool EchoDetected { get; init; }
+    public bool ReverbDetected { get; init; }
+    public double EchoDelayMs { get; init; } = double.NaN;
+    public string EffectObservation { get; init; } = "";
     public bool ReliableImpulse { get; init; }
     public string Polarity { get; init; } = "UNKNOWN";
     public double ToneThdPercent { get; init; } = double.NaN;
@@ -33,17 +42,39 @@ public static class SpeakerMeasurementDiagnosis
     public static IReadOnlyList<string> DescribeMeasurement(MeasurementDiagnosisEvidence evidence)
     {
         var notes = new List<string>();
+        // A limit on ruling out effects must not hide an effect actually detected
+        // in a valid impulse. Response/reference/THD validity is independent.
+        if (evidence.HasEffectEvidence && !evidence.SignalTooWeak && !evidence.Clipped)
+        {
+            if (!string.IsNullOrWhiteSpace(evidence.EffectObservation))
+                notes.Add(evidence.EffectObservation);
+            else
+            {
+                var effects = new List<string>();
+                if (evidence.EchoDetected)
+                    effects.Add("Có echo trong bản thu" + (double.IsFinite(evidence.EchoDelayMs) ? $" (lặp {evidence.EchoDelayMs:F0} ms)." : "."));
+                if (evidence.ReverbDetected) effects.Add("Có reverb trong bản thu.");
+                if (!evidence.EchoDetected || !evidence.ReverbDetected)
+                {
+                    string missing = evidence.EchoDetected ? "reverb" : evidence.ReverbDetected ? "echo" : "echo/reverb";
+                    effects.Add(evidence.EffectClassificationReliable
+                        ? $"Chưa phát hiện {missing} trong bản thu."
+                        : $"{(missing == "reverb" ? "Reverb" : missing == "echo" ? "Echo" : "Echo/reverb")} chưa xác định: nền IR cao hoặc đuôi thu thiếu.");
+                }
+                notes.Add(string.Join(" ", effects));
+            }
+        }
         if (evidence.SignalTooWeak)
-            notes.Add($"Tín hiệu quá yếu ({Level(evidence.SignalDbFs)}): kiểm tra mic IN 2, ngõ phát, mute, dây và mức tín hiệu.");
+            notes.Add($"Tín hiệu quá yếu ({Level(evidence.SignalDbFs)}); kiểm tra ngõ phát/thu và mute.");
         if (evidence.Clipped)
-            notes.Add("Ngõ thu bị clipping/quá tải: giảm mức phát hoặc gain phần cứng rồi đo lại; chưa quy méo cho loa.");
+            notes.Add("Ngõ thu bị clipping; giảm mức phát hoặc gain rồi đo lại.");
         bool noisy = double.IsFinite(evidence.NoiseDbFs) && evidence.NoiseDbFs > -55.0;
         if (noisy)
-            notes.Add($"Nhiễu nền cao ({Level(evidence.NoiseDbFs)}): kiểm tra đường thu, mixer và soundcard; THD có thể sai.");
+            notes.Add($"Nhiễu nền {Level(evidence.NoiseDbFs)}" + (double.IsFinite(evidence.SnrDb) ? $", SNR {evidence.SnrDb:F1} dB." : "."));
         if (!evidence.ResponseValid || evidence.SignalTooWeak || evidence.Clipped || noisy)
         {
             if (!string.IsNullOrWhiteSpace(evidence.AcquisitionIssue)) notes.Add(evidence.AcquisitionIssue);
-            notes.Add("Bản thu chưa đủ tin cậy; chưa phán đoán lỗi loa hoặc đấu sai cực.");
+            if (notes.Count == 0) notes.Add("Chưa có bản thu hợp lệ.");
             return notes;
         }
 
@@ -51,39 +82,50 @@ public static class SpeakerMeasurementDiagnosis
             && double.IsFinite(p.MeasuredDbFs) && double.IsFinite(p.TargetDbFs)).ToArray();
         if (evidence.HasComparableReference && points.Length >= 3)
         {
+            bool absoluteAvailable = !evidence.NormalizedAtOneKilohertz
+                || double.IsFinite(evidence.MeasuredOneKilohertzDbFs) && double.IsFinite(evidence.ReferenceOneKilohertzDbFs);
+            double absoluteOffset = evidence.NormalizedAtOneKilohertz
+                ? evidence.MeasuredOneKilohertzDbFs - evidence.ReferenceOneKilohertzDbFs : 0;
             double[] offsets = points.Select(p => p.MeasuredDbFs - p.TargetDbFs).OrderBy(v => v).ToArray();
             double offset = Median(offsets);
             double tolerance = Median(points.Select(p => Math.Max(0.1, p.ToleranceDb)).OrderBy(v => v).ToArray());
             bool mostlySameLevelChange = offsets.Count(v => Math.Abs(v - offset) <= 1.5) >= Math.Ceiling(points.Length * 0.8);
-            if (Math.Abs(offset) > tolerance && mostlySameLevelChange)
-                notes.Add($"Mức thu toàn dải {(offset < 0 ? "thấp" : "cao")} hơn line chuẩn khoảng {Math.Abs(offset):F1} dB: kiểm tra volume, gain, khoảng cách mic và đúng route.");
+            if (absoluteAvailable)
+            {
+                double levelDelta = offset + absoluteOffset;
+                notes.Add(Math.Abs(levelDelta) < .05
+                    ? "Mức âm tương đương line chuẩn."
+                    : $"Loa {(levelDelta < 0 ? "yếu" : "mạnh")} hơn line chuẩn khoảng {Math.Abs(levelDelta):F1} dB.");
+            }
+            else
+                notes.Add("Thiếu mức dBFS gốc để so âm lượng với line chuẩn.");
             var bands = new[] { (Name: "bass", Low: 50.0, High: 250.0), (Name: "mid", Low: 250.0, High: 4000.0), (Name: "treble", Low: 4000.0, High: 18001.0) };
             var bandsOutsideLimits = bands.Where(b => points.Any(p => p.FrequencyHz >= b.Low && p.FrequencyHz < b.High
                 && Math.Abs(p.MeasuredDbFs - p.TargetDbFs) > p.ToleranceDb)).Select(b => b.Name).ToArray();
             if (bandsOutsideLimits.Length > 0 && !(mostlySameLevelChange && Math.Abs(offset) > tolerance))
-                notes.Add($"Đáp tuyến lệch ở {string.Join(" / ", bandsOutsideLimits)}: kiểm tra vị trí mic, phản xạ, phân tần và củ loa; riêng biên độ chưa xác định được đấu sai cực.");
+                notes.Add($"Đáp tuyến vượt dung sai ở {string.Join(" / ", bandsOutsideLimits)}.");
         }
         else
-            notes.Add("Chưa có line chuẩn dBFS cùng cấu hình: cần tìm lại line để đánh giá mức âm lượng và đáp tuyến.");
+            notes.Add("Chưa có line chuẩn để so mức âm và đáp tuyến.");
 
         // The sign of one impulse is relative to the whole playback/capture chain.
         // Without a saved impulse polarity from the same route it cannot diagnose wiring.
         if (!evidence.DistortionValid)
-            notes.Add("THD chưa đủ tin cậy; kiểm tra SNR, tần số, clock và chất lượng bản thu trước khi kết luận méo.");
+            notes.Add("THD chưa đo hợp lệ.");
         else
         {
             var over = evidence.Distortion.Where(p => double.IsFinite(p.ThdPercent) && p.ThdPercent > p.LimitPercent)
                 .OrderByDescending(p => p.ThdPercent / Math.Max(0.001, p.LimitPercent)).FirstOrDefault();
             if (over != null)
-                notes.Add($"THD {over.ThdPercent:F3}% tại {over.FrequencyHz:0} Hz vượt giới hạn {over.LimitPercent:F3}%: có thể quá mức phát hoặc phi tuyến ampli/củ loa. Thử giảm mức phát và đối chiếu loopback.");
+                notes.Add($"THD {over.ThdPercent:F3}% tại {over.FrequencyHz:0} Hz vượt giới hạn {over.LimitPercent:F3}%.");
             if (double.IsFinite(evidence.ToneThdNPercent) && double.IsFinite(evidence.ToneThdPercent)
                 && evidence.ToneThdNPercent > Math.Max(0.1, evidence.ToneThdPercent * 2))
-                notes.Add($"THD+N ({evidence.ToneThdNPercent:F3}%) cao hơn nhiều THD ({evidence.ToneThdPercent:F3}%): phần dư ngoài hài đáng kể; kiểm tra nhiễu nền, rung/rè và DSP.");
+                notes.Add($"THD+N {evidence.ToneThdNPercent:F3}%, THD {evidence.ToneThdPercent:F3}%; phần dư ngoài hài cao.");
         }
-        if (double.IsFinite(evidence.SnrDb) && evidence.SnrDb < 30)
-            notes.Add($"SNR chỉ {evidence.SnrDb:F1} dB: các giá trị méo nhỏ dễ bị nhiễu che lấp.");
+        if (!noisy && double.IsFinite(evidence.SnrDb) && evidence.SnrDb < 30)
+            notes.Add($"SNR {evidence.SnrDb:F1} dB; nhiễu có thể che méo nhỏ.");
         if (notes.Count == 0)
-            notes.Add("Chưa thấy dấu hiệu bất thường theo line chuẩn và giới hạn đang dùng; kết luận chỉ áp dụng cho cấu hình đo này.");
+            notes.Add("Các giá trị đo nằm trong giới hạn đang dùng.");
         return notes;
     }
 

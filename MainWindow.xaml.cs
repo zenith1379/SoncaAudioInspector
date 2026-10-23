@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,6 +30,8 @@ namespace SoncaAudioInspector
         public Dictionary<string, JsonElement>? Extra { get; set; }
         public string model { get; set; } = "";
         public TestItems testItems { get; set; } = new TestItems();
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? AudioConfigUpdatedUtc { get; set; }
         
         [System.Text.Json.Serialization.JsonPropertyName("assemblyCount")]
         public int itemCount { get; set; }
@@ -82,6 +84,8 @@ namespace SoncaAudioInspector
     }
     public class InOutConfig
     {
+        public string? AutomationProfile { get; set; }
+        public int AutomationProfileVersion { get; set; }
         [System.Text.Json.Serialization.JsonExtensionData]
         public Dictionary<string, JsonElement>? Extra { get; set; }
         public string Description { get; set; } = "";
@@ -118,8 +122,9 @@ namespace SoncaAudioInspector
             else writer.WriteNullValue();
         }
     }
-    public class TestConfig : System.Text.Json.Serialization.IJsonOnDeserialized
+    public partial class TestConfig : System.Text.Json.Serialization.IJsonOnDeserialized
     {
+        public string? SpeakerStage { get; set; }
         [System.Text.Json.Serialization.JsonExtensionData]
         public Dictionary<string, JsonElement>? Extra { get; set; }
         public string id { get; set; } = "";
@@ -135,13 +140,20 @@ namespace SoncaAudioInspector
         public double? PlaybackVolume { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("Playback Level dBFS")]
-        public double? PlaybackLevelDbfs { get; set; }
+        public double? PlaybackLevelDbfs
+        {
+            get => _playbackLevelDbfs;
+            set { _playbackLevelDbfs = value; _hasExplicitPlaybackLevel = true; }
+        }
+        private double? _playbackLevelDbfs;
+        private bool _hasExplicitPlaybackLevel;
 
         [System.Text.Json.Serialization.JsonPropertyName("Playback Level")]
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public double? PlaybackLevel
         {
-            get => PlaybackLevelDbfs;
-            set { if (value.HasValue) PlaybackLevelDbfs = value; }
+            get => null;
+            set { if (!_hasExplicitPlaybackLevel && value.HasValue) _playbackLevelDbfs = value; }
         }
 
         [System.Text.Json.Serialization.JsonPropertyName("Recording Gain")]
@@ -315,6 +327,7 @@ namespace SoncaAudioInspector
             InitializeComponent();
             StateChanged += (_, _) => ResizeHandles.Visibility = WindowState == WindowState.Normal
                 ? Visibility.Visible : Visibility.Collapsed;
+            _ = SoncaBleManager.Instance.EnsureConnectedAsync();
             
             _audioEngine = new AudioEngine();
             _testRunner = new TestRunner(_audioEngine);
@@ -341,6 +354,7 @@ namespace SoncaAudioInspector
 
             // Load configurations for models selection
             LoadCheckingConfig();
+            Loaded += async (_, _) => await LoadSharedAudioConfigsAsync();
             ComboModels.SelectedIndex = -1;
             _audioRoutingView.ClearModelSelection();
             // Audio Routing only: do not restore serial/QR state or query product models.
@@ -395,6 +409,8 @@ namespace SoncaAudioInspector
                             .Where(model => IsSupportedModel(model.model))
                             .DistinctBy(model => model.model.Trim(), StringComparer.OrdinalIgnoreCase)
                             .ToList();
+                        bool addedC360 = C360ModelDefinition.EnsureSeed(_checkingConfig);
+                        if (addedC360) SaveCheckingConfig();
                         ComboModels.Items.Clear();
                         foreach (var m in _checkingConfig.models)
                         {
@@ -406,6 +422,8 @@ namespace SoncaAudioInspector
                 else
                 {
                     _checkingConfig = new CheckingConfig();
+                    C360ModelDefinition.EnsureSeed(_checkingConfig); SaveCheckingConfig();
+                    foreach (var model in _checkingConfig.models) ComboModels.Items.Add(model.model);
                 }
             }
             catch
@@ -635,6 +653,7 @@ namespace SoncaAudioInspector
                 return;
             }
 
+            _ = _audioRoutingView.PrepareModelBleAsync(modelConfig.testItems.InOut);
             bool success = _audioRoutingView.ApplyModelDevices(modelConfig.testItems.InOut, out string? missingMessage);
             StartSelectedModelDeviceMonitor(selectedModelName, modelConfig.testItems.InOut);
             if (!success) ShowDeviceConnectionWindow(selectedModelName, modelConfig.testItems.InOut, missingMessage);
@@ -1868,6 +1887,8 @@ namespace SoncaAudioInspector
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Z)
+            { if (!e.IsRepeat) _audioRoutingView.OpenImpedanceWindow(); e.Handled = true; return; }
             if (TryHandleBleMixerShortcut(e.Key, Keyboard.Modifiers, e.IsRepeat, OpenBleMixerController))
             {
                 e.Handled = true;
@@ -1959,7 +1980,8 @@ namespace SoncaAudioInspector
 
                 _bleMixerWindow = new SoncaBleMixerWindow(selectedModel)
                 {
-                    Owner = this
+                    Owner = this,
+                    IsAudioMeasurementBusy = () => _audioRoutingView.IsTestingBusy || _audioEngine.IsContinuousPlaybackActive
                 };
                 _bleMixerWindow.Closed += (_, _) => _bleMixerWindow = null;
                 _bleMixerWindow.Show();
@@ -1993,12 +2015,13 @@ namespace SoncaAudioInspector
                 return;
             }
             var editor = new ModelConfigEditorWindow(createNew ? null : original) { Owner = this };
-            editor.SaveModel = candidate =>
+            void SaveCandidate(ModelConfig candidate, bool localEdit)
             {
                 if (_checkingConfig.models.Any(m => !ReferenceEquals(m, original) && string.Equals(m.model.Trim(), candidate.model, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidDataException("Tên model đã tồn tại.");
                 var previous = _checkingConfig.models.ToList();
-                if (!createNew && original != null) _checkingConfig.models[_checkingConfig.models.IndexOf(original)] = candidate;
+                if (localEdit) candidate.AudioConfigUpdatedUtc = DateTimeOffset.UtcNow;
+                if (original != null && _checkingConfig.models.Contains(original)) _checkingConfig.models[_checkingConfig.models.IndexOf(original)] = candidate;
                 else _checkingConfig.models.Add(candidate);
                 if (!SaveCheckingConfig())
                 {
@@ -2008,9 +2031,19 @@ namespace SoncaAudioInspector
                 StopSelectedModelDeviceMonitor();
                 ComboModels.Items.Clear();
                 foreach (var model in _checkingConfig.models) ComboModels.Items.Add(model.model);
+                original = candidate;
                 SelectModel(candidate.model);
+            }
+            editor.SaveModel = candidate => SaveCandidate(candidate, true);
+            editor.PublishModel = async candidate =>
+            {
+                var shared = await ServerEngine.PublishAudioModelConfigAsync(candidate);
+                SaveCandidate(shared, false);
+                return shared;
             };
-            editor.ShowDialog();
+            _modelEditorOpen = true;
+            try { editor.ShowDialog(); }
+            finally { _modelEditorOpen = false; }
         }
 
         private void BtnToggleSettings_Click(object sender, RoutedEventArgs e)
@@ -2043,7 +2076,7 @@ namespace SoncaAudioInspector
             // Auto Test belongs to Audio Routing. Only its measurement controls follow
             // the setup visibility; removed modules must never be exposed by this toggle.
             if (BtnDiscardMeasurement != null)
-                BtnDiscardMeasurement.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+                BtnDiscardMeasurement.Visibility = isVisible || _audioRoutingView?.IsModelTransitionBusy == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private bool _isFullscreen = false;
@@ -2171,6 +2204,7 @@ namespace SoncaAudioInspector
                 // like a persisted session.
                 e.Cancel = true;
                 _isLoggingOut = true;
+                await _audioRoutingView.StopC360ForShutdownAsync();
                 try
                 {
                     using var cancellation = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(3));

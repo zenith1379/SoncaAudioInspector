@@ -8,7 +8,49 @@ using SoncaAudioInspector;
 
 internal static class SweepPerformanceChecks
 {
-    public static void Run()
+    // No endpoints are opened. Match the production grid, conditioning and tail;
+    // Report Analyze separately: a production single-run test ends there.
+    // The extra coherent finalization is used only for multi-run averaging.
+    public static void RunProduction(int length, int runs, bool silent = false)
+    {
+        var settings = new LogSweepSettings(44100, 18, 44100 * .47, length / 44100.0, .25,
+            ResponseSmoothing.SourcePointsPerOctave, EffectsSettings: new ImpulseEffectSettings());
+        float[] sweep = StandardAcousticMeasurement.GenerateLogSweep(settings);
+        var recorded = new float[sweep.Length + 44100 * 3 + 26460];
+        var random = new Random(458);
+        if (!silent)
+        {
+            for (int i = 0; i < recorded.Length; i++) recorded[i] = (float)((random.NextDouble() - .5) * 1e-6);
+            for (int i = 0; i < sweep.Length; i++) recorded[i + 2048] += sweep[i] * .25f;
+        }
+        recorded = StandardAcousticMeasurement.ApplySubsonicConditioning(recorded, settings.SampleRate);
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var overload = typeof(StandardAcousticMeasurement).GetMethods().SingleOrDefault(m =>
+            m.Name == nameof(StandardAcousticMeasurement.AnalyzeLogSweep) && m.GetParameters().Length == 6);
+        for (int run = 0; run < runs; run++)
+        {
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            var stages = new Dictionary<string, double>();
+            Action<string, double> stage = (name, ms) => stages[name] = ms;
+            long allocated = GC.GetTotalAllocatedBytes(precise: true);
+            var timer = Stopwatch.StartNew();
+            var result = overload == null ? StandardAcousticMeasurement.AnalyzeLogSweep(sweep, recorded, settings, null, -125)
+                : (StandardAcousticResult)overload.Invoke(null, new object?[] { sweep, recorded, settings, null, -125.0, stage })!;
+            double analysisMs = timer.Elapsed.TotalMilliseconds;
+            var average = StandardAcousticMeasurement.AverageComplexTransfers(new[] { result.AlignedTransferFunction });
+            var finalResponse = StandardAcousticMeasurement.BuildFrequencyResponseFromAlignedTransfer(average.Transfer,
+                settings.SampleRate, settings.StartFrequencyHz, 22000, settings.PointsPerOctave, null, settings);
+            double totalMs = timer.Elapsed.TotalMilliseconds;
+            long allocation = GC.GetTotalAllocatedBytes(precise: true) - allocated;
+            string fullResultSha256 = Digest(result, options);
+            string finalResponseSha256 = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(finalResponse, options)));
+            Console.WriteLine(JsonSerializer.Serialize(new { length, run, seconds = settings.DurationSeconds,
+                settings.PointsPerOctave, analysisMs, finalizationMs = totalMs - analysisMs, totalMs, allocation,
+                stages, fullResultSha256, finalResponseSha256, result.Validity }));
+        }
+    }
+
+    public static void Run(int repeats = 5)
     {
         var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
         foreach (double seconds in new[] { 65536.0 / 44100, 3.0 })
@@ -17,9 +59,9 @@ internal static class SweepPerformanceChecks
             float[] sweep = StandardAcousticMeasurement.GenerateLogSweep(settings);
             var capture = new float[sweep.Length + 4410];
             for (int index = 0; index < sweep.Length; index++) capture[index + 128] = sweep[index] * .25f;
-            _ = StandardAcousticMeasurement.AnalyzeLogSweep(sweep, capture, settings);
+            if (repeats > 1) _ = StandardAcousticMeasurement.AnalyzeLogSweep(sweep, capture, settings);
             var timings = new List<double>(); var allocations = new List<long>(); string? hash = null;
-            for (int run = 0; run < 5; run++)
+            for (int run = 0; run < repeats; run++)
             {
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 long allocated = GC.GetTotalAllocatedBytes(precise: true);
@@ -30,8 +72,8 @@ internal static class SweepPerformanceChecks
                 timings.Add(watch.Elapsed.TotalMilliseconds);
                 if (hash == null) hash = Digest(result, options);
             }
-            Console.WriteLine(JsonSerializer.Serialize(new { seconds, medianMs = timings.Order().ElementAt(2),
-                medianAllocatedBytes = allocations.Order().ElementAt(2), fullResultSha256 = hash, timings }));
+            Console.WriteLine(JsonSerializer.Serialize(new { seconds, medianMs = timings.Order().ElementAt(repeats / 2),
+                medianAllocatedBytes = allocations.Order().ElementAt(repeats / 2), fullResultSha256 = hash, timings }));
         }
         var checks = new LogSweepSettings(48000, 20, 20000, 1.5, .4);
         float[] stimulus = StandardAcousticMeasurement.GenerateLogSweep(checks);

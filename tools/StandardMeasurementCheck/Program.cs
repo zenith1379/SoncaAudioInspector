@@ -1,6 +1,30 @@
 using System.Numerics;
 using MathNet.Numerics.IntegralTransforms;
 using SoncaAudioInspector;
+if (args.Contains("--impedance")) { ImpedanceChecks.Run(); return; }
+if (args.Contains("--reverb-decay")) { ReverbDecayChecks.Run(); return; }
+
+if (args.Contains("--distortion-audit")) { DistortionAuditChecks.Run(); return; }
+if (args.Contains("--distortion-preservation")) { DistortionPreservationChecks.Run(); return; }
+if (args.Contains("--captured-effects"))
+{
+    int index = Array.IndexOf(args, "--captured-effects");
+    ImpulseEffectsChecks.RunCaptured(Path.GetFullPath(args[index + 1]), Path.GetFullPath(args[index + 2]));
+    return;
+}
+
+if (args.Contains("--signal-diagnostics")) { SignalDiagnosticChecks.Run(Path.GetFullPath(args[Array.IndexOf(args, "--signal-diagnostics") + 1])); return; }
+
+if (args.Contains("--mechanical")) { MechanicalChecks.Run(Path.GetFullPath(args[Array.IndexOf(args, "--mechanical") + 1])); return; }
+
+if (args.Contains("--fft-backend"))
+{
+    Console.WriteLine(SweepFourier.BackendName);
+    if (args.Contains("--require-native") && !SweepFourier.BackendName.Contains("MKL")) throw new Exception("Native FFT was not loaded.");
+    return;
+}
+
+if (args.Contains("--sweep-fft")) { SweepFourierChecks.Run(); return; }
 
 if (args.Contains("--impulse-plot"))
 {
@@ -45,11 +69,13 @@ double responseSpread = flat.FrequencyResponse
     .Max(point => Math.Abs(point.NormalizedLevelDb));
 if (responseSpread > 0.8)
     throw new InvalidOperationException($"Flat transfer response spread too high: {responseSpread:F3} dB.");
-if (flat.UngatedFrequencyResponse.Count == 0 || !flat.FrequencyDependentWindowing
+if (flat.UngatedFrequencyResponse.Count == 0 || flat.FrequencyDependentWindowing
+    || flat.ImpulseWindowKind != ImpulseWindowKind.Tukey25
+    || Math.Abs(flat.ImpulseWindowLeftMs - settings.ImpulseWindowLeftMs) > .02
     || Math.Abs(flat.ImpulseWindowRightMs - settings.ImpulseWindowRightMs) > 0.1
     || Math.Abs(flat.FrequencyDependentWindowCycles - settings.FrequencyDependentWindowCycles) > 1e-9
     || flat.GatedMinimumFrequencyHz > settings.StartFrequencyHz)
-    throw new InvalidOperationException("Frequency-dependent window metadata was not retained.");
+    throw new InvalidOperationException("Tukey IR window / disabled FDW metadata was not retained.");
 
 // Simulate independent playback/capture clocks: the recorded sweep is 400 ppm longer.
 const double injectedClockScale = 1.0004;

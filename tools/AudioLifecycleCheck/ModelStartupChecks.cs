@@ -91,7 +91,7 @@ internal static class ModelStartupChecks
                 var routing = (AudioRouting)typeof(MainWindow).GetField("_audioRoutingView", Instance)!.GetValue(window)!;
                 object? Field(string name) => typeof(MainWindow).GetField(name, Instance)!.GetValue(window);
                 var autoTest = (Button)routing.FindName("BtnStartAutoTest");
-                Require(combo.Items.Count == 1 && combo.SelectedIndex == -1 && !autoTest.IsEnabled,
+                Require(combo.Items.Count == 2 && combo.Items.Contains("C360") && combo.SelectedIndex == -1 && !autoTest.IsEnabled,
                     "Startup selected a model or enabled Auto Test before operator selection.");
                 Require(Field("_pendingDeviceConfig") == null && Field("_selectedModelDeviceConfig") == null
                     && Field("_deviceConnectionWindow") == null && !(bool)Field("_audioUsageChecked")!,

@@ -83,7 +83,9 @@ public class TestRunner
 
 	private List<TestStep> _steps = new List<TestStep>();
 
-	private bool _isCancelled;
+	private volatile bool _isCancelled;
+	private CancellationTokenSource? _runCancellation;
+	private CancellationToken RunCancellation => _runCancellation?.Token ?? CancellationToken.None;
 
 	public double MultitoneDurationSeconds { get; set; } = 10.0;
 
@@ -352,9 +354,9 @@ public class TestRunner
 				: result.SignalLevelDbFs < MinimumInputSignalDbFs
 					? $"Sweep quá yếu ({result.SignalLevelDbFs:F1} dBFS < {MinimumInputSignalDbFs:F1} dBFS); không kết luận distortion"
 					: "Sweep không hợp lệ; không kết luận distortion";
-		return new SweepDistortionSummary(targetFreq, sweepHarmonicPoint?.FundamentalLevelDb ?? double.NaN,
+			return new SweepDistortionSummary(targetFreq, sweepHarmonicPoint?.FundamentalLevelDb ?? double.NaN,
 			flag ? dictionary : dictionary.ToDictionary(item => item.Key, _ => double.NaN),
-			flag ? sweepHarmonicPoint!.ThdPercent : double.NaN, noiseFloorPercent, result.NoiseFloorDbFs, includedHarmonics, flag, validity);
+					flag ? sweepHarmonicPoint!.ThdPercent : double.NaN, noiseFloorPercent, result.NoiseFloorDbFs, includedHarmonics, flag, validity);
 	}
 
 	private SweepDistortionSummary BuildSweepWideDistortionSummary(StandardAcousticResult result)
@@ -900,6 +902,8 @@ public class TestRunner
 		public void Cancel()
 		{
 			_isCancelled = true;
+				try { System.Threading.Volatile.Read(ref _runCancellation)?.Cancel(); }
+				catch (ObjectDisposedException) { }
 			_audioEngine.StopAllAudio();
 	}
 
@@ -1015,14 +1019,15 @@ public class TestRunner
 			{
 				try
 				{
-					dualCaptureResult = await _audioEngine.CaptureSilenceAsync(recordingDevice, AmbientRecordingDevice, stablePreflight ? 1.0 : 0.4);
+					dualCaptureResult = await _audioEngine.CaptureSilenceAsync(recordingDevice, AmbientRecordingDevice, stablePreflight ? 1.0 : 0.4, RunCancellation);
 					break;
 				}
+				catch (OperationCanceledException) when (RunCancellation.IsCancellationRequested) { throw; }
 				catch (Exception ex)
 				{
 					OnLogMessage?.Invoke("Cảnh báo noise", $"Thu nền lần {captureAttempt} lỗi ({ex.GetType().Name}): {ex.Message}");
 					if (captureAttempt < 2 && stablePreflight)
-						await Task.Delay(250);
+						await Task.Delay(250, RunCancellation);
 				}
 			}
 			if (dualCaptureResult == null)
@@ -1051,30 +1056,56 @@ public class TestRunner
 			if (LastNoiseAssessment.EnvironmentTooLoud && attempt < attempts)
 			{
 				OnLogMessage?.Invoke("Nhiễu", "Môi trường đang ồn; tự động đo lại sau 150 ms (không đổi kết quả DUT).");
-				await Task.Delay(150);
+				await Task.Delay(150, RunCancellation);
 				continue;
 			}
 			break;
 		}
 	}
 
-	public async Task RunTestAsync(MMDevice playbackDevice, MMDevice recordingDevice, bool runFeqThreeTimes = false, bool referenceAcquisition = false)
+	public Task RunTestAsync(MMDevice playbackDevice, MMDevice recordingDevice, bool runFeqThreeTimes = false, bool referenceAcquisition = false)
+		=> RunOwnedTestAsync(_ => RunTestCoreAsync(playbackDevice, recordingDevice, runFeqThreeTimes, referenceAcquisition, CaptureSession ?? _audioEngine.CaptureSession));
+
+	private async Task RunOwnedTestAsync(Func<CancellationToken, Task> run)
 	{
 		if (System.Threading.Interlocked.CompareExchange(ref _testRunActive, 1, 0) != 0)
 			throw new InvalidOperationException("Bài test trước chưa kết thúc; không thể chạy đo line và Auto Test đồng thời.");
+		var runTimer = Stopwatch.StartNew();
+		using var cancellation = new CancellationTokenSource();
+		_runCancellation = cancellation;
+		_isCancelled = false;
+		_currentRunTimer = runTimer;
 		try
 		{
 			_audioEngine.StopAllAudio();
-			await RunTestCoreAsync(playbackDevice, recordingDevice, runFeqThreeTimes, referenceAcquisition, CaptureSession ?? _audioEngine.CaptureSession);
+			await run(cancellation.Token);
 		}
 		finally
 		{
-			try { _audioEngine.StopAllAudio(); }
-			finally { System.Threading.Volatile.Write(ref _testRunActive, 0); }
+			try
+			{
+				_audioEngine.StopAllAudio();
+				OnLogMessage?.Invoke("Thời gian đo", $"Tổng quy trình: {runTimer.Elapsed.TotalSeconds:F2}s (gồm chuẩn bị, phát/thu, phân tích và cập nhật kết quả).");
+			}
+			finally
+			{
+				_currentRunTimer = null;
+				System.Threading.Interlocked.CompareExchange(ref _runCancellation, null, cancellation);
+				System.Threading.Volatile.Write(ref _testRunActive, 0);
+			}
 		}
 	}
 
 	private int _testRunActive;
+	private Stopwatch? _currentRunTimer;
+	private void NotifyTestCompleted(bool success)
+	{
+		if (_currentRunTimer != null)
+			OnLogMessage?.Invoke("Thời gian kết quả", $"Kết quả sẵn sàng sau {_currentRunTimer.Elapsed.TotalSeconds:F2}s.");
+		var uiTimer = Stopwatch.StartNew();
+		OnTestCompleted?.Invoke(success);
+		OnLogMessage?.Invoke("Thời gian giao diện", $"Cập nhật kết quả / hộp thông báo: {uiTimer.Elapsed.TotalSeconds:F2}s.");
+	}
 	// Optional externally owned diagnostic session; normal operation uses the engine session.
 	public SharedCaptureSession? CaptureSession { get; set; }
 
@@ -1084,9 +1115,9 @@ public class TestRunner
 
 	private async Task RunTestCoreAsync(MMDevice playbackDevice, MMDevice recordingDevice, bool runFeqThreeTimes, bool referenceAcquisition, SharedCaptureSession captureSession)
 	{
+		var preparationTimer = Stopwatch.StartNew();
 		bool useLogSweep = UseLogSweepFrequencyResponse && !AudioEngine.flagGenerateSeperateSine;
 		bool requireQuietPreflight = AutoTestOneKilohertzOnly || referenceAcquisition || useLogSweep;
-		_isCancelled = false;
 		InitializeSteps();
 		if (referenceAcquisition)
 		{
@@ -1141,14 +1172,14 @@ public class TestRunner
 		_steps[0].Status = "Running";
 		OnStepsChanged?.Invoke(_steps);
 		OnLogMessage?.Invoke("Bước 1", "Đang kiểm tra thiết bị phát và thu âm...");
-		await Task.Delay(50);
+		await Task.Delay(50, RunCancellation);
 		if (playbackDevice == null || recordingDevice == null)
 		{
 			_steps[0].Status = "Fail";
 			_steps[0].Details = "Thiếu thiết bị phát hoặc thu âm.";
 			OnStepsChanged?.Invoke(_steps);
 			OnLogMessage?.Invoke("Lỗi bước 1", "Chưa chọn thiết bị âm thanh hoặc thiết bị đã mất kết nối.");
-			OnTestCompleted?.Invoke(obj: false);
+			NotifyTestCompleted(false);
 			return;
 		}
 		try
@@ -1167,7 +1198,7 @@ public class TestRunner
 			_steps[0].Details = LastFeqInvalidReason;
 			OnStepsChanged?.Invoke(_steps);
 			OnLogMessage?.Invoke("Lỗi thiết bị", LastFeqInvalidReason);
-			OnTestCompleted?.Invoke(false);
+			NotifyTestCompleted(false);
 			return;
 		}
 		_steps[0].Status = "Pass";
@@ -1205,109 +1236,116 @@ public class TestRunner
 					_steps[0].Details = $"Nền ngõ thu {inputNoise?.TotalRmsDb:F1} dBFS, peak {inputNoise?.PeakSample:F4} không hợp lệ hoặc vượt -55 dBFS / 0.05 trước khi phát; chờ tín hiệu dư tắt rồi đo lại.";
 					OnStepsChanged?.Invoke(_steps);
 					OnLogMessage?.Invoke("Auto Test", _steps[0].Details);
-					OnTestCompleted?.Invoke(false);
+					NotifyTestCompleted(false);
 					return;
 				}
 				if (elevatedNoise)
-				{
-					LastPreflightWarning = $"Nền đầu vào cao ({inputNoise!.TotalRmsDb:F1} dBFS). Line thủ công tiếp tục thu chẩn đoán; chỉ dùng dữ liệu khi SNR/clipping hợp lệ. Auto Test/Line chuẩn vẫn yêu cầu nền thấp.";
-					OnLogMessage?.Invoke("Cảnh báo trước đo", LastPreflightWarning);
-				}
+					OnLogMessage?.Invoke("Nền ngõ thu", $"Nền trước phát: {inputNoise!.TotalRmsDb:F1} dBFS. Tiếp tục đo và đánh giá tín hiệu sweep thực thu.");
 			}
 		}
-		OnLogMessage?.Invoke("Bước 1", "Đang kiểm tra tín hiệu ngõ thu...");
-		double probeFreq = (IsRubBuzzTest ? RubBuzzTestFreq : 1000.0);
-		float[] samples;
-		try
+		if (!useLogSweep || IsRubBuzzTest)
 		{
-			samples = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(probeFreq), 0.35,
-				signalSampleScale: PlaybackAmplitude * ((AutoTestOneKilohertzOnly || referenceAcquisition) ? AutoTestToneSampleScale : 1.0));
-		}
-		catch (Exception ex)
-		{
-			_steps[0].Status = "Fail";
-			_steps[0].Details = "Lỗi thiết bị âm thanh: " + ex.Message;
-			OnStepsChanged?.Invoke(_steps);
-			OnLogMessage?.Invoke("Lỗi bước 1", ex.Message);
-			OnTestCompleted?.Invoke(obj: false);
-			return;
-		}
-		if (_isCancelled)
-		{
-			return;
-		}
-		float[] samples2 = RemoveDigitalRecordingGain(samples);
-		int probeSampleRate = _audioEngine.RecordingSampleRate;
-		(int, int) centeredAnalysisRange = GetCenteredAnalysisRange(samples2, probeSampleRate, 0.2);
-		double num = DspProcessor.CalculateRms(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
-		double probeDbFs = 20.0 * Math.Log10(num + 1E-09);
-		double probePeak = GetPeak(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
-		double probeClippedPercent = GetClippedPercent(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
-		if (probeDbFs < MinimumInputSignalDbFs)
-		{
+			OnLogMessage?.Invoke("Bước 1", "Đang kiểm tra tín hiệu ngõ thu...");
+			double probeFreq = (IsRubBuzzTest ? RubBuzzTestFreq : 1000.0);
+			float[] samples;
 			try
 			{
-				samples = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(probeFreq), 0.4,
+				samples = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(probeFreq), 0.35,
+					cancellationToken: RunCancellation,
 					signalSampleScale: PlaybackAmplitude * ((AutoTestOneKilohertzOnly || referenceAcquisition) ? AutoTestToneSampleScale : 1.0));
-				if (_isCancelled)
-				{
-					return;
-				}
-				float[] samples3 = RemoveDigitalRecordingGain(samples);
-				centeredAnalysisRange = GetCenteredAnalysisRange(samples3, probeSampleRate, 0.2);
-				num = DspProcessor.CalculateRms(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
-				probeDbFs = 20.0 * Math.Log10(num + 1E-09);
-				probePeak = GetPeak(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
-				probeClippedPercent = GetClippedPercent(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
 			}
-			catch
+			catch (OperationCanceledException) when (RunCancellation.IsCancellationRequested) { throw; }
+			catch (Exception ex)
 			{
+				_steps[0].Status = "Fail";
+				_steps[0].Details = "Lỗi thiết bị âm thanh: " + ex.Message;
+				OnStepsChanged?.Invoke(_steps);
+				OnLogMessage?.Invoke("Lỗi bước 1", ex.Message);
+				NotifyTestCompleted(false);
+				return;
 			}
-		}
-		if (probeDbFs < MinimumInputSignalDbFs)
-		{
-			SilentInputDetected = true;
-			ThdPassed = false;
-			LastSignalLevelDbFs = probeDbFs;
-			_steps[0].Status = "Fail";
-			_steps[0].Details = $"Không đủ tín hiệu ({probeDbFs:F1} dBFS; cần ≥ {MinimumInputSignalDbFs:F1} dBFS).";
-			_steps[1].Status = "Pending";
-			_steps[1].Details = "Bỏ qua: Không phát hiện tín hiệu ở bước 1.";
-			_steps[2].Status = "Pending";
-			_steps[2].Details = "Bỏ qua: Không phát hiện tín hiệu ở bước 1.";
-			_steps[3].Status = "Fail";
-			_steps[3].Details = "Dừng sớm: Không phát hiện tín hiệu từ ngõ thu.";
+			if (_isCancelled)
+			{
+				return;
+			}
+			float[] samples2 = RemoveDigitalRecordingGain(samples);
+			int probeSampleRate = _audioEngine.RecordingSampleRate;
+			(int, int) centeredAnalysisRange = GetCenteredAnalysisRange(samples2, probeSampleRate, 0.2);
+			double num = DspProcessor.CalculateRms(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+			double probeDbFs = 20.0 * Math.Log10(num + 1E-09);
+			double probePeak = GetPeak(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+			double probeClippedPercent = GetClippedPercent(samples2, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+			if (probeDbFs < MinimumInputSignalDbFs)
+			{
+				try
+				{
+					samples = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(probeFreq), 0.4,
+						cancellationToken: RunCancellation,
+						signalSampleScale: PlaybackAmplitude * ((AutoTestOneKilohertzOnly || referenceAcquisition) ? AutoTestToneSampleScale : 1.0));
+					if (_isCancelled)
+					{
+						return;
+					}
+					float[] samples3 = RemoveDigitalRecordingGain(samples);
+					centeredAnalysisRange = GetCenteredAnalysisRange(samples3, probeSampleRate, 0.2);
+					num = DspProcessor.CalculateRms(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+					probeDbFs = 20.0 * Math.Log10(num + 1E-09);
+					probePeak = GetPeak(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+					probeClippedPercent = GetClippedPercent(samples3, centeredAnalysisRange.Item1, centeredAnalysisRange.Item2);
+				}
+				catch
+				{
+				}
+			}
+			if (probeDbFs < MinimumInputSignalDbFs)
+			{
+				SilentInputDetected = true;
+				ThdPassed = false;
+				LastSignalLevelDbFs = probeDbFs;
+				_steps[0].Status = "Fail";
+				_steps[0].Details = $"Không đủ tín hiệu ({probeDbFs:F1} dBFS; cần ≥ {MinimumInputSignalDbFs:F1} dBFS).";
+				_steps[1].Status = "Pending";
+				_steps[1].Details = "Bỏ qua: Không phát hiện tín hiệu ở bước 1.";
+				_steps[2].Status = "Pending";
+				_steps[2].Details = "Bỏ qua: Không phát hiện tín hiệu ở bước 1.";
+				_steps[3].Status = "Fail";
+				_steps[3].Details = "Dừng sớm: Không phát hiện tín hiệu từ ngõ thu.";
+				OnStepsChanged?.Invoke(_steps);
+				OnLogMessage?.Invoke("Bước 1 Error", $"KHÔNG ĐỦ TÍN HIỆU: Mức thu {probeDbFs:F1} dBFS (< {MinimumInputSignalDbFs:F1} dBFS). Đã dừng trước FEQ/THD để không tạo đồ thị giả.");
+				OnLogMessage?.Invoke("Gợi ý khắc phục", "• Kiểm tra volume loa và đảm bảo ngõ phát đang phát âm thanh bình thường.\n• Kiểm tra micro: đảm bảo không bị Mute hoặc âm lượng micro trong Windows đang ở mức 0%.\n• Nếu dùng loa & micro laptop: Windows hoặc Realtek Audio Console thường tự động bật Echo Cancellation (khử vọng) hoặc AI Noise Suppression triệt tiêu âm loa vào mic.\n• Kiểm tra quyền Microphone trong Windows Settings (Allow desktop apps to access microphone).");
+				NotifyTestCompleted(false);
+				return;
+			}
+			if (probePeak >= 0.995 || probeClippedPercent > MaximumClippedSamplePercent)
+			{
+				InputClippingDetected = true;
+				ThdPassed = false;
+				LastSignalLevelDbFs = probeDbFs;
+				LastFeqPeakSample = probePeak;
+				_steps[0].Status = "Fail";
+				_steps[0].Details = $"Tín hiệu quá mạnh/clipping (peak {probePeak:F4}; rail {probeClippedPercent:F4}%).";
+				_steps[1].Status = "Pending";
+				_steps[1].Details = "Bỏ qua: Input clipping ở bước kiểm tra tín hiệu.";
+				_steps[2].Status = "Pending";
+				_steps[2].Details = "Bỏ qua: Input clipping ở bước kiểm tra tín hiệu.";
+				_steps[3].Status = "Fail";
+				_steps[3].Details = "Dừng sớm: tín hiệu input quá mạnh; không tính FEQ/THD.";
+				OnStepsChanged?.Invoke(_steps);
+				OnLogMessage?.Invoke("Bước 1 Error", $"INPUT QUÁ MẠNH: peak {probePeak:F4}, rail {probeClippedPercent:F4}% (> {MaximumClippedSamplePercent:F4}%). Đã dừng trước sweep/THD để tránh báo méo giả.");
+				OnLogMessage?.Invoke("Gợi ý khắc phục", "Giảm gain phần cứng/ngõ IN trước. Nếu vẫn clipping, giảm Windows Master Volume/ngõ OUT từng 5–10%. Sau đó mở Sine Check và chỉ đo lại khi báo ĐẠT.");
+				NotifyTestCompleted(false);
+				return;
+			}
+			_steps[0].Details = $"Out: {playbackDevice.FriendlyName}\nIn: {recordingDevice.FriendlyName} ({probeDbFs:F1} dBFS)";
 			OnStepsChanged?.Invoke(_steps);
-			OnLogMessage?.Invoke("Bước 1 Error", $"KHÔNG ĐỦ TÍN HIỆU: Mức thu {probeDbFs:F1} dBFS (< {MinimumInputSignalDbFs:F1} dBFS). Đã dừng trước FEQ/THD để không tạo đồ thị giả.");
-			OnLogMessage?.Invoke("Gợi ý khắc phục", "• Kiểm tra volume loa và đảm bảo ngõ phát đang phát âm thanh bình thường.\n• Kiểm tra micro: đảm bảo không bị Mute hoặc âm lượng micro trong Windows đang ở mức 0%.\n• Nếu dùng loa & micro laptop: Windows hoặc Realtek Audio Console thường tự động bật Echo Cancellation (khử vọng) hoặc AI Noise Suppression triệt tiêu âm loa vào mic.\n• Kiểm tra quyền Microphone trong Windows Settings (Allow desktop apps to access microphone).");
-			OnTestCompleted?.Invoke(obj: false);
-			return;
+			OnLogMessage?.Invoke("Bước 1", $"Tín hiệu hợp lệ: {probeDbFs:F1} dBFS.");
+			if (AutoTestOneKilohertzOnly || referenceAcquisition)
+				await Task.Delay(AutoTestOneKilohertzOnly ? 250 : 1000, RunCancellation);
 		}
-		if (probePeak >= 0.995 || probeClippedPercent > MaximumClippedSamplePercent)
+		else
 		{
-			InputClippingDetected = true;
-			ThdPassed = false;
-			LastSignalLevelDbFs = probeDbFs;
-			LastFeqPeakSample = probePeak;
-			_steps[0].Status = "Fail";
-			_steps[0].Details = $"Tín hiệu quá mạnh/clipping (peak {probePeak:F4}; rail {probeClippedPercent:F4}%).";
-			_steps[1].Status = "Pending";
-			_steps[1].Details = "Bỏ qua: Input clipping ở bước kiểm tra tín hiệu.";
-			_steps[2].Status = "Pending";
-			_steps[2].Details = "Bỏ qua: Input clipping ở bước kiểm tra tín hiệu.";
-			_steps[3].Status = "Fail";
-			_steps[3].Details = "Dừng sớm: tín hiệu input quá mạnh; không tính FEQ/THD.";
-			OnStepsChanged?.Invoke(_steps);
-			OnLogMessage?.Invoke("Bước 1 Error", $"INPUT QUÁ MẠNH: peak {probePeak:F4}, rail {probeClippedPercent:F4}% (> {MaximumClippedSamplePercent:F4}%). Đã dừng trước sweep/THD để tránh báo méo giả.");
-			OnLogMessage?.Invoke("Gợi ý khắc phục", "Giảm gain phần cứng/ngõ IN trước. Nếu vẫn clipping, giảm Windows Master Volume/ngõ OUT từng 5–10%. Sau đó mở Sine Check và chỉ đo lại khi báo ĐẠT.");
-			OnTestCompleted?.Invoke(obj: false);
-			return;
+			OnLogMessage?.Invoke("Bước 1", "Kiểm tra mức, clipping, SNR và đường âm trực tiếp từ chính bản thu sweep; không phát thêm tone 1 kHz.");
 		}
-		_steps[0].Details = $"Out: {playbackDevice.FriendlyName}\nIn: {recordingDevice.FriendlyName} ({probeDbFs:F1} dBFS)";
-		OnStepsChanged?.Invoke(_steps);
-		OnLogMessage?.Invoke("Bước 1", $"Tín hiệu hợp lệ: {probeDbFs:F1} dBFS.");
-		if (AutoTestOneKilohertzOnly || referenceAcquisition)
-			await Task.Delay(AutoTestOneKilohertzOnly ? 250 : 1000);
 		if (EnableNoiseDiagnostics && !requireQuietPreflight)
 		{
 			await RunFastNoiseDiagnosticsAsync(recordingDevice);
@@ -1353,7 +1391,11 @@ public class TestRunner
 		(string Name, double[] MeasuredFrequencies, double[] PlaybackFrequencies)[] playbackBands = multitoneBands.Select(((string Name, double[] Frequencies) tuple2) => (Name: tuple2.Name, MeasuredFrequencies: tuple2.Frequencies, PlaybackFrequencies: (from f in tuple2.Frequencies.Append(1100.0).Distinct()
 			orderby f
 			select f).ToArray())).ToArray();
-		double commonMultitoneScale = SignalSampleProvider.CalculateCommonMultitoneSampleScale(_audioEngine.PlaybackSampleRate, playbackBands.Select(((string Name, double[] MeasuredFrequencies, double[] PlaybackFrequencies) tuple2) => tuple2.PlaybackFrequencies));
+		double commonMultitoneScale = useLogSweep ? 1.0 : SignalSampleProvider.CalculateCommonMultitoneSampleScale(_audioEngine.PlaybackSampleRate, playbackBands.Select(((string Name, double[] MeasuredFrequencies, double[] PlaybackFrequencies) tuple2) => tuple2.PlaybackFrequencies));
+		OnLogMessage?.Invoke("Thời gian chuẩn bị", $"Thiết bị + noise floor + chuẩn bị trước sweep: {preparationTimer.Elapsed.TotalSeconds:F2}s.");
+		// Native-library initialization can overlap the capture instead of
+		// extending the first post-capture analysis. No audio runs on this task.
+		Task<string>? sweepFftBackend = useLogSweep ? Task.Run(() => SweepFourier.BackendName) : null;
 		bool freqResponsePass = true;
 		double maxFreqDev = 0.0;
 		string compareMsg = "";
@@ -1369,6 +1411,7 @@ public class TestRunner
 		List<Complex[]> alignedComplexTransfers = new List<Complex[]>();
 		List<Complex[][]> harmonicTransfersByRun = new List<Complex[][]>();
 		LogSweepSettings? lastSweepSettings = null;
+		(double DbFs, double Peak)? sweepTailNoise = null;
 		int complexTransferSampleRate = 0;
 		bool anyFeqSilentAttempt = false;
 		bool anyFeqLowSnrAttempt = false;
@@ -1428,7 +1471,18 @@ public class TestRunner
 				AudioEngine audioEngine = _audioEngine;
 				double durationSeconds = (double)array2.Length / (double)playbackSampleRate + ImpulseEffectsSettings.CaptureTailSeconds;
 				float[] customSweepSamples = array2;
-				float[] array3 = await audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sweep, 0.0, durationSeconds, samples => OnRealTimeRecordedSamples?.Invoke(samples), forceSaveFiles: false, null, null, 1.0, default(CancellationToken), null, customSweepSamples);
+				var captureTimer = Stopwatch.StartNew();
+				float[] array3 = await audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sweep, 0.0, durationSeconds, samples => OnRealTimeRecordedSamples?.Invoke(samples), forceSaveFiles: false, null, null, 1.0, RunCancellation, null, customSweepSamples);
+				captureTimer.Stop();
+				var analysisTimer = Stopwatch.StartNew();
+				int tailRate = _audioEngine.RecordingSampleRate;
+				sweepTailNoise = null;
+				if (array3.Length >= generatedExcitation.Length * tailRate / (double)playbackSampleRate + tailRate)
+				{
+					int tailStart = array3.Length - tailRate;
+					double rms = DspProcessor.CalculateRms(array3, tailStart, tailRate);
+					sweepTailNoise = (20 * Math.Log10(Math.Max(rms, 1e-9)), GetPeak(array3, tailStart, tailRate));
+				}
 				if (array3.Length > 0)
 				{
 					double sweepPeakAbs = array3.Max(s => Math.Abs((double)s));
@@ -1464,10 +1518,19 @@ public class TestRunner
 				float[] excitation = ((recordingSampleRate == playbackSampleRate) ? generatedExcitation : StandardAcousticMeasurement.GenerateLogSweep(settings));
 				double? preSweepFloor = SuiteSharedNoiseFloorDbFs ?? LastNoiseAssessment?.DutMicrophone?.TotalRmsDb;
 				var sweepCalibration = FeqMicrophoneCalibration;
+				var stageTimings = new List<string>();
+				string fftBackend = await sweepFftBackend!;
 				capturedSweepResult = await Task.Run(() => StandardAcousticMeasurement.AnalyzeLogSweep(
-					excitation, array3, settings, sweepCalibration, preSweepFloor));
+					excitation, array3, settings, sweepCalibration, preSweepFloor,
+					(stage, ms) => stageTimings.Add($"{stage}={ms:F0}ms"), RunCancellation), RunCancellation);
+				analysisTimer.Stop();
+				OnLogMessage?.Invoke("Thời gian sweep", $"Run {run}, {generatedExcitation.Length} mẫu: phát/thu {captureTimer.Elapsed.TotalSeconds:F2}s; tiền xử lý + phân tích {analysisTimer.Elapsed.TotalSeconds:F2}s. " + string.Join(", ", stageTimings));
 				if (_isCancelled) return;
 				StandardAcousticResult sweepResult = capturedSweepResult;
+				double clockScale = sweepResult.ClockDriftCorrectionApplied ? 1 + sweepResult.EstimatedClockDriftPpm / 1e6 : 1;
+				if (array3.Length - clockScale * (sweepResult.DirectArrivalSample + excitation.Length) < recordingSampleRate * 1.05)
+					sweepTailNoise = null;
+				OnLogMessage?.Invoke("Thời gian FFT", fftBackend);
 				string clockState = sweepResult.ClockDriftCorrectionApplied
 					? $"đã bù {sweepResult.EstimatedClockDriftPpm:+0.0;-0.0;0.0} ppm"
 					: double.IsFinite(sweepResult.ClockFitRmsSamples)
@@ -1475,7 +1538,8 @@ public class TestRunner
 						: "không đủ tin cậy để tự bù";
 				OnLogMessage?.Invoke("FEQ Clock", $"Run {run}: {clockState}; sai số fit {sweepResult.ClockFitRmsSamples:F2} mẫu.");
 				OnLogMessage?.Invoke("FEQ Window",
-					$"Run {run}: FDW {sweepResult.FrequencyDependentWindowCycles:F0} chu kỳ, giới hạn phải {sweepResult.ImpulseWindowRightMs:F1} ms.");
+					$"Run {run}: {sweepResult.ImpulseWindowKind}, L −{sweepResult.ImpulseWindowLeftMs:F3} ms / R +{sweepResult.ImpulseWindowRightMs:F3} ms; "
+                    + (sweepResult.FrequencyDependentWindowing ? $"FDW {sweepResult.FrequencyDependentWindowCycles:F0} chu kỳ." : "FDW tắt."));
 				OnLogMessage?.Invoke("FEQ Grid",
 					$"Run {run}: {sweepFrequencies.Length} điểm, {LogSweepPointsPerOctave} điểm/octave.");
 				if (RequireLogSweepPhaseAlignment && sweepResult.AlignedTransferFunction.Length != 0)
@@ -1548,7 +1612,7 @@ public class TestRunner
 					double durationSeconds2 = ((freq < 100.0 || freq > 10000.0) ? 1.0 : 0.5);
 					OnLogMessage?.Invoke("Step 2", $"Run {run} - Testing: {freq} Hz");
 					OnTestSubstatusChanged?.Invoke("Freq", $"Run {run} - {freq} Hz");
-					float[] samples5 = RemoveDigitalRecordingGain(await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(freq), durationSeconds2));
+					float[] samples5 = RemoveDigitalRecordingGain(await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, ScalePlaybackFrequency(freq), durationSeconds2, cancellationToken: RunCancellation));
 					if (CheckFeqInputClipping(samples5, $"{freq:F0} Hz"))
 					{
 						InputClippingDetected = true;
@@ -1575,7 +1639,7 @@ public class TestRunner
 					OnLogMessage?.Invoke("Step 2", $"Run {run} - {band.Name} multitone {playbackSampleRate + 1}/{playbackBands.Length}: {band.MeasuredFrequencies.Length} points + pilot {1100.0:F0} Hz, thu {num5:F1}s / phân tích {freq:F1}s giữa...");
 					OnTestSubstatusChanged?.Invoke("Freq", $"Run {run} - {band.Name} ({playbackSampleRate + 1}/{playbackBands.Length})...");
 					double[] array5 = ScalePlaybackFrequencies(band.PlaybackFrequencies);
-					float[] samples6 = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Multitone, ScalePlaybackFrequency(1100.0), num5, samplesChunk => OnRealTimeRecordedSamples?.Invoke(samplesChunk), forceSaveFiles: false, array5, null, commonMultitoneScale);
+					float[] samples6 = await _audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Multitone, ScalePlaybackFrequency(1100.0), num5, samplesChunk => OnRealTimeRecordedSamples?.Invoke(samplesChunk), forceSaveFiles: false, array5, null, commonMultitoneScale, cancellationToken: RunCancellation);
 					if (samples6.Length > 0)
 					{
 						double multiPeakAbs = samples6.Max(s => Math.Abs((double)s));
@@ -1771,7 +1835,8 @@ public class TestRunner
 			}
 			if (flag)
 			{
-				OnLogMessage?.Invoke("Step 2", $"Run {run} không được tính PASS/FAIL vì bản thu không hợp lệ; vẫn giữ các điểm để chẩn đoán và tự đo bù.");
+				OnLogMessage?.Invoke("Step 2", $"Run {run} không được tính PASS/FAIL vì bản thu không hợp lệ; vẫn giữ các điểm để chẩn đoán. "
+					+ (run < maxRunAttempts ? "Tiếp tục lượt xác nhận đã cấu hình." : "Đã hết số lượt đã cấu hình; không tự phát lại."));
 			}
 			else if (flag7)
 			{
@@ -1880,7 +1945,7 @@ public class TestRunner
 			{
 				break;
 			}
-			await Task.Delay(300);
+			await Task.Delay(300, RunCancellation);
 		}
 		if (verifyFeqRepeatability)
 		{
@@ -1892,8 +1957,21 @@ public class TestRunner
 			bool flag9 = false;
 			if (useLogSweep && alignedComplexTransfers.Count == measuredRunResults.Count && alignedComplexTransfers.Count > 0 && complexTransferSampleRate > 0)
 			{
-				ComplexTransferAverage complexAverage = StandardAcousticMeasurement.AverageComplexTransfers(alignedComplexTransfers);
-				IReadOnlyList<FrequencyResponsePoint> response = StandardAcousticMeasurement.BuildFrequencyResponseFromAlignedTransfer(complexAverage.Transfer, complexTransferSampleRate, ScalePlaybackFrequency(18.0), ScalePlaybackFrequency(22000.0), ResponseSmoothing.SourcePointsPerOctave, FeqMicrophoneCalibration);
+				var finalizeTimer = Stopwatch.StartNew();
+				var transfersToAverage = alignedComplexTransfers.ToArray();
+				double startFrequency = ScalePlaybackFrequency(18.0), endFrequency = ScalePlaybackFrequency(22000.0);
+				var calibration = FeqMicrophoneCalibration;
+				var (complexAverage, response) = await Task.Run(() =>
+				{
+					RunCancellation.ThrowIfCancellationRequested();
+					var average = StandardAcousticMeasurement.AverageComplexTransfers(transfersToAverage);
+					var curve = StandardAcousticMeasurement.BuildFrequencyResponseFromAlignedTransfer(average.Transfer,
+						complexTransferSampleRate, startFrequency, endFrequency, ResponseSmoothing.SourcePointsPerOctave,
+						calibration, lastSweepSettings);
+					return (average, curve);
+				}, RunCancellation);
+				if (_isCancelled) return;
+				OnLogMessage?.Invoke("Thời gian tổng hợp", $"Coherent average + đáp tuyến cuối: {finalizeTimer.Elapsed.TotalSeconds:F2}s.");
 				dictionary4 = BuildSweepComparisonResponse(response, sweepFrequencies);
 				if (NormalizeFrequencyResponseToOneKilohertz)
 				{
@@ -2115,8 +2193,8 @@ public class TestRunner
 		OnStepsChanged?.Invoke(_steps);
 		// Log-sweep THD is derived from the sweep already captured. No new
 		// playback starts here, so the transition needs no acoustic settle.
-		if (!useLogSweep || referenceAcquisition)
-			await Task.Delay(500);
+		if (!useLogSweep)
+			await Task.Delay(500, RunCancellation);
 		if (_isCancelled)
 		{
 			return;
@@ -2134,7 +2212,7 @@ public class TestRunner
 			_steps[3].Details = "Đo không đạt do không nhận được tín hiệu âm thanh.";
 			OnStepsChanged?.Invoke(_steps);
 			OnLogMessage?.Invoke("Step 2", "Frequency response FAILED: Silent input. Dừng quy trình đo do không có tín hiệu.");
-			OnTestCompleted?.Invoke(obj: false);
+			NotifyTestCompleted(false);
 			return;
 		}
 		if (referenceAcquisition)
@@ -2143,12 +2221,16 @@ public class TestRunner
 			ReferenceAcquisitionValid = (measuredRunResults.Count >= targetValidRuns && !insufficientValidFeqRuns && !InputClippingDetected && !SilentInputDetected && !FeqRepeatabilityInvalid) & flag15;
 			LastFeqInvalidIsRetryableNoise = ((!ReferenceAcquisitionValid & insufficientValidFeqRuns & anyFeqLowSnrAttempt) && !InputClippingDetected && !SilentInputDetected && !FeqRepeatabilityInvalid) & flag15;
 			LastFeqInvalidReason = (ReferenceAcquisitionValid ? "" : (InputClippingDetected ? $"Tín hiệu micro bị clipping/quá tải (peak {LastFeqPeakSample:F4}); giảm Playback Volume hoặc gain phần cứng đầu vào rồi đo lại." : (SilentInputDetected ? $"Không nhận đủ tín hiệu từ micro (mức pilot {LastSignalLevelDbFs:F1} dBFS)." : ((!FeqRepeatabilityInvalid) ? ((anySweepAcquisitionInvalid && !string.IsNullOrWhiteSpace(lastSweepInvalidReason) && !LastFeqInvalidIsRetryableNoise) ? lastSweepInvalidReason : (LastFeqInvalidIsRetryableNoise ? $"Nhiễu/SNR thấp: {lastLowSnrPointCount}/{lastSnrCheckedPointCount} điểm dưới {MinimumFeqSnrDb:F0} dB. {lastLowSnrPointDetails}" : ((!flag15) ? "Dữ liệu đáp tuyến thiếu điểm hoặc có giá trị không hữu hạn." : $"Không đủ lượt FEQ hợp lệ ({measuredRunResults.Count}/{targetValidRuns})."))) : (ComplexPhaseAlignmentInvalid ? "Pha giữa các lượt log-sweep chưa đồng bộ (INVALID_PHASE_ALIGNMENT); biên độ có thể ổn định nhưng chưa được lưu line chuẩn." : $"Đáp tuyến chưa ổn định giữa các lượt (dao động vượt {FreqResponseToleranceDb:F2} dB); không được lưu line chuẩn.")))));
-			if (EnableNoiseDiagnostics)
+			if (EnableNoiseDiagnostics && useLogSweep && sweepTailNoise is { DbFs: <= -55, Peak: < .05 } quietTail)
 			{
-				await Task.Delay(1000);
+				OnLogMessage?.Invoke("Headroom", $"Dùng lại 1 s nền cuối bản thu sweep: {quietTail.DbFs:F1} dBFS, peak {quietTail.Peak:F4}; không mở thêm phiên thu nền.");
+			}
+			else if (EnableNoiseDiagnostics)
+			{
+				await Task.Delay(1000, RunCancellation);
 				try
 				{
-					AudioEngine.DualCaptureResult postSweep = await _audioEngine.CaptureSilenceAsync(recordingDevice, null, 1.0);
+					AudioEngine.DualCaptureResult postSweep = await _audioEngine.CaptureSilenceAsync(recordingDevice, null, 1.0, RunCancellation);
 					double postRms = DspProcessor.CalculateRms(postSweep.DutSamples, 0, postSweep.DutSamples.Length);
 					double postDbFs = 20.0 * Math.Log10(Math.Max(postRms, 1E-09));
 					double postPeak = postSweep.DutSamples.Select(sample => Math.Abs((double)sample)).DefaultIfEmpty().Max();
@@ -2175,7 +2257,7 @@ public class TestRunner
 			_steps[3].Details = _steps[1].Details;
 			OnTestSubstatusChanged?.Invoke("THD", "KHÔNG ÁP DỤNG · TÌM LINE CHUẨN");
 			OnStepsChanged?.Invoke(_steps);
-			OnTestCompleted?.Invoke(ReferenceAcquisitionValid);
+			NotifyTestCompleted(ReferenceAcquisitionValid);
 			return;
 		}
 		_steps[2].Status = "Running";
@@ -2206,7 +2288,7 @@ public class TestRunner
 				_steps[2].Details = $"Chưa đo THD: nền ngõ thu {thdNoise?.TotalRmsDb:F1} dBFS không hợp lệ hoặc vượt -55 dBFS sau FEQ.";
 				OnStepsChanged?.Invoke(_steps);
 				OnLogMessage?.Invoke("Auto Test", _steps[2].Details);
-				OnTestCompleted?.Invoke(false);
+				NotifyTestCompleted(false);
 				return;
 			}
 		}
@@ -2259,13 +2341,13 @@ public class TestRunner
 						ClippedSamplePercent: (LastSweepResult?.IsClipped ?? false) ? 1.0 : 0.0,
 						LargestSpurFrequencyHz: 0.0,
 						SfdrDb: sweepSnr,
-						Harmonics: harmonicsList);
+						Harmonics: harmonicsList) { AnalysisSource = "LOG_SWEEP_FDW" };
 
-					double recommendedSnr = limitPercent > 0.0 ? 20.0 * Math.Log10(100.0 / limitPercent) + 6.0 : double.PositiveInfinity;
-					bool lowSnr = !double.IsFinite(sweepSnr) || sweepSnr < recommendedSnr;
-					distortionResults.Add(new DistortionPointResult(frequencyHz, limitPercent, quality, 1, false, false, false, lowSnr, pt.ThdPercent, sweepSnr));
+					distortionResults.Add(new DistortionPointResult(frequencyHz, limitPercent, quality, 1, false, false, false, false, pt.ThdPercent, sweepSnr));
 					int highestHarmonic = harmonicsList.Select(h => h.Order).DefaultIfEmpty(1).Max();
 					OnLogMessage?.Invoke("Bước 3", $"• {frequencyHz:0} Hz (đọc từ sweep, không phát thêm): THD H2-H{highestHarmonic} = {pt.ThdPercent:F3}% (Giới hạn: {limitPercent:F3}%) · {(pt.ThdPercent <= limitPercent ? "ĐẠT" : "KHÔNG ĐẠT")}");
+					if (PlaybackLevelDbFs > -6 && pt.ThdPercent > limitPercent)
+						OnLogMessage?.Invoke("Headroom nguồn phát", $"Đang phát {PlaybackLevelDbFs:F1} dBFS peak. Limiter/DSP có thể méo trước khi ADC báo clipping; đối chiếu REW phải cùng mức phát. Kiểm tra lại ở -12 dBFS và lấy line chuẩn tại cùng mức khi cần.");
 				}
 				else
 				{
@@ -2280,7 +2362,7 @@ public class TestRunner
 						LastSweepResult == null || LastSweepResult.SignalLevelDbFs < MinimumInputSignalDbFs,
 						LastSweepResult?.IsClipped ?? false,
 						false,
-						true,
+						false,
 						double.NaN,
 						sweepSnr));
 				}
@@ -2299,7 +2381,7 @@ public class TestRunner
 				if (run > 0)
 				{
 					OnTestSubstatusChanged?.Invoke("THD", $"Ổn định thiết bị trước khi đo {frequencyHz:0} Hz...");
-					await Task.Delay(DistortionInterPointSettleMilliseconds);
+					await Task.Delay(DistortionInterPointSettleMilliseconds, RunCancellation);
 				}
 				distortionResults.Add(await MeasureDistortionPointAsync(playbackDevice, recordingDevice, frequencyHz, limitPercent));
 			}
@@ -2334,14 +2416,11 @@ public class TestRunner
 		bool flag27 = (ThdPassed = (!flag16 & flag26) && !flag21 && !flag22 && !flag23 && !flag24 && !flag25);
 		bool thdPass = flag27;
 		string text3 = string.Join(" · ", distortionResults.Select((DistortionPointResult distortionPointResult) => $"{distortionPointResult.FrequencyHz:0}Hz: {((distortionPointResult.ValidRuns >= 1 && double.IsFinite(distortionPointResult.Quality.ThdPercent)) ? (distortionPointResult.Quality.ThdPercent.ToString("F3", CultureInfo.InvariantCulture) + "%") : (double.IsFinite(distortionPointResult.DiagnosticThdPercent) ? (distortionPointResult.DiagnosticThdPercent.ToString("F3", CultureInfo.InvariantCulture) + "% tham khảo") : "N/A"))}/{distortionPointResult.LimitPercent:F3}% ({distortionPointResult.ValidRuns}/{1})"));
-		string text4 = string.Join("; ", from distortionPointResult in distortionResults
-			where distortionPointResult.AnyLowSnr && distortionPointResult.ValidRuns >= 1
-			select $"{distortionPointResult.FrequencyHz:0}Hz SNR {distortionPointResult.AcquisitionSnrDb:F1} dB < khuyến nghị {20.0 * Math.Log10(100.0 / distortionPointResult.LimitPercent) + 6.0:F1} dB");
 		if (thdPass)
 		{
 			_steps[2].Status = "Pass";
 			string thdHeader = double.IsFinite(LastMeasuredThdPercent) ? $"THD{(useLogSweep ? $" tại {MidThdFrequencyHz:0} Hz" : "")} {LastMeasuredThdPercent:F3}% (ĐẠT)" : "ĐẠT";
-			_steps[2].Details = $"{thdHeader} · " + text3 + (string.IsNullOrWhiteSpace(text4) ? "" : (" · Cảnh báo SNR (tạm không đổi kết quả): " + text4));
+			_steps[2].Details = $"{thdHeader} · " + text3;
 			OnLogMessage?.Invoke("Bước 3", _steps[2].Details);
 		}
 		else
@@ -2387,7 +2466,7 @@ public class TestRunner
 			{
 				list2.Add("SNR chưa đủ: " + string.Join("; ", from distortionPointResult in distortionResults
 					where distortionPointResult.AnyLowSnr
-					select $"{distortionPointResult.FrequencyHz:0}Hz {distortionPointResult.AcquisitionSnrDb:F1} dB < {20.0 * Math.Log10(100.0 / distortionPointResult.LimitPercent) + 6.0:F1} dB"));
+					select $"{distortionPointResult.FrequencyHz:0}Hz {distortionPointResult.AcquisitionSnrDb:F1} dB < {MinimumSnrDb ?? 0:F1} dB"));
 			}
 			if (flag16 & flag18)
 			{
@@ -2404,8 +2483,8 @@ public class TestRunner
 		}
 		OnTestSubstatusChanged?.Invoke("THD", _steps[2].Details);
 		OnStepsChanged?.Invoke(_steps);
-		if (!AutoTestOneKilohertzOnly)
-			await Task.Delay(500);
+		if (!AutoTestOneKilohertzOnly && !useLogSweep)
+			await Task.Delay(500, RunCancellation);
 		if (_isCancelled)
 		{
 			return;
@@ -2453,7 +2532,7 @@ public class TestRunner
 			}
 		}
 		OnStepsChanged?.Invoke(_steps);
-		OnTestCompleted?.Invoke(flag29);
+		NotifyTestCompleted(flag29);
 	}
 
 	private static double GetPeak(float[] samples, int start, int count)
@@ -2506,7 +2585,7 @@ public class TestRunner
 			double frequency = playbackFrequencyHz;
 			double signalSampleScale = AutoTestOneKilohertzOnly ? AutoTestToneSampleScale
 				: ((frequencyHz < 250.0) ? BassDistortionSampleScale : 1.0);
-			float[] samples = await audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, frequency, 3.0, samplesChunk => OnRealTimeRecordedSamples?.Invoke(samplesChunk), forceSaveFiles: true, null, null, 1.0, default(CancellationToken), null, null, signalSampleScale);
+			float[] samples = await audioEngine.PlayAndRecordAsync(playbackDevice, recordingDevice, SignalType.Sine, frequency, 3.0, samplesChunk => OnRealTimeRecordedSamples?.Invoke(samplesChunk), forceSaveFiles: true, null, null, 1.0, RunCancellation, null, null, signalSampleScale);
 			if (samples.Length > 0)
 			{
 				double thdPeakAbs = samples.Max(s => Math.Abs((double)s));
@@ -2534,7 +2613,7 @@ public class TestRunner
 				OnOneKilohertzToneMeasured?.Invoke(num, toneQualityMetrics.PeakSample);
 			double num2 = Math.Max(MaximumToneFrequencyErrorHz, playbackFrequencyHz * 0.002);
 			bool flag3 = toneQualityMetrics.IsValid && Math.Abs(toneQualityMetrics.FundamentalFrequencyHz - playbackFrequencyHz) > num2;
-			double num3 = ((limitPercent > 0.0) ? (20.0 * Math.Log10(100.0 / limitPercent) + 6.0) : double.PositiveInfinity);
+			double num3 = MinimumSnrDb ?? 0.0;
 			// Separate the pre-stimulus noise floor from the sine-fit residual:
 			// independent playback/capture clocks can inflate the latter.
 			double acquisitionSnrDb = toneQualityMetrics.SnrDb;
@@ -2613,7 +2692,7 @@ public class TestRunner
 			}
 			if (attempt < 1 && validRuns.Count < 1)
 			{
-				await Task.Delay(50);
+				await Task.Delay(50, RunCancellation);
 			}
 		}
 		ToneQualityMetrics toneQualityMetrics2;

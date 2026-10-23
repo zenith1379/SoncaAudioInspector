@@ -13,18 +13,74 @@ public sealed partial class SoncaBleManager
     private readonly SoncaBleReplyDecoder _replyDecoder = new();
     private TaskCompletionSource<SoncaBleReply>? _infoReply;
     private int _connectionGeneration;
+    internal int ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
     public bool IsConnecting { get; private set; }
+    public string FirmwareIdentity { get; private set; } = "";
+    public ulong? ConnectedBluetoothAddress => _connectedDevice?.BluetoothAddress;
+
+    public static async Task<IReadOnlyList<BleDeviceInfo>> KnownAssociatedControllersAsync(IReadOnlyList<BluetoothAudioPeer> peers, bool verifyService = true)
+    {
+        var matches = new List<BleDeviceInfo>();
+        if (peers.Count == 0) return matches;
+        var infos = await DeviceInformation.FindAllAsync(BluetoothLEDevice.GetDeviceSelector(), new[] { "System.Devices.Aep.DeviceAddress" });
+        foreach (var info in infos)
+        {
+            ulong listed = 0;
+            bool hasAddress = info.Properties.TryGetValue("System.Devices.Aep.DeviceAddress", out object? raw)
+                && ulong.TryParse(raw?.ToString()?.Replace(":", "").Replace("-", ""), System.Globalization.NumberStyles.HexNumber, null, out listed);
+            if (hasAddress && !SoncaBleDiscovery.MatchesAudioPeer(listed, peers)) continue;
+            if (!verifyService)
+            {
+                // Address association is only a candidate. ConnectAsync validates
+                // the exact service, characteristics and live INFO before use.
+                if (hasAddress) matches.Add(new(listed, info.Name, 0, true, DateTime.Now));
+                continue;
+            }
+            try
+            {
+                using var device = await BluetoothLEDevice.FromIdAsync(info.Id).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+                if (device == null || !SoncaBleDiscovery.MatchesAudioPeer(device.BluetoothAddress, peers)) continue;
+                var services = await device.GetGattServicesForUuidAsync(SoncaBleProtocol.PrimaryServiceUuid, BluetoothCacheMode.Cached)
+                    .AsTask().WaitAsync(TimeSpan.FromSeconds(4));
+                try
+                {
+                    if (services.Status == GattCommunicationStatus.Success && services.Services.Any(s => s.Uuid == SoncaBleProtocol.PrimaryServiceUuid))
+                        matches.Add(new(device.BluetoothAddress, string.IsNullOrWhiteSpace(info.Name) ? $"Sonca BLE {device.BluetoothAddress:X12}" : info.Name,
+                            0, true, DateTime.Now) { ServiceUuids = new[] { SoncaBleProtocol.PrimaryServiceUuid } });
+                }
+                finally { foreach (var service in services.Services) service.Dispose(); }
+            }
+            catch (Exception ex) when (ex is ArgumentException or System.Runtime.InteropServices.COMException or TimeoutException)
+            { System.Diagnostics.Debug.WriteLine("Unavailable associated BLE peer: " + ex.Message); }
+        }
+        return matches.GroupBy(d => d.Address).Select(g => g.First()).ToArray();
+    }
 
     public static async Task<IReadOnlyList<BluetoothAudioPeer>> ConnectedAudioPeersAsync()
     {
         var peers = new List<BluetoothAudioPeer>();
+        // AEPs can retain IsConnected=true for a removed adapter and reject
+        // FromIdAsync. Enumerate current radios as well; never trust that flag alone.
+        try { peers.AddRange(await Task.Run(NativeBluetoothAudioPeers.ReadConnected)); }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or System.Runtime.InteropServices.SEHException)
+        { System.Diagnostics.Debug.WriteLine("Native Bluetooth read unavailable: " + ex.Message); }
+        if (peers.Count > 0) return peers.GroupBy(p => p.Address).Select(g => g.First()).ToArray();
         var infos = await DeviceInformation.FindAllAsync(BluetoothDevice.GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus.Connected));
         foreach (var info in infos.Where(i => SoncaBleProtocol.IsLikelySoncaDevice(i.Name)))
         {
-            using var device = await BluetoothDevice.FromIdAsync(info.Id);
-            if (device?.ConnectionStatus == BluetoothConnectionStatus.Connected) peers.Add(new(device.BluetoothAddress, info.Name.Trim()));
+            try
+            {
+                using var device = await BluetoothDevice.FromIdAsync(info.Id);
+                if (device?.ConnectionStatus == BluetoothConnectionStatus.Connected) peers.Add(new(device.BluetoothAddress, info.Name.Trim()));
+            }
+            catch (Exception ex) when (ex is ArgumentException or System.Runtime.InteropServices.COMException)
+            {
+                // A stale/LE-only Windows AEP may satisfy the classic selector
+                // yet reject BluetoothDevice.FromIdAsync. Keep the other peers.
+                System.Diagnostics.Debug.WriteLine("Skipping unavailable audio peer: " + ex.Message);
+            }
         }
-        return peers;
+        return peers.GroupBy(p => p.Address).Select(g => g.First()).ToArray();
     }
 
     public async Task<bool> ConnectAsync(ulong bluetoothAddress)
@@ -47,17 +103,29 @@ public sealed partial class SoncaBleManager
             if (_connectionGeneration != generation) { device.Dispose(); CheckCurrent(); }
             _connectedDevice = device;
             device.ConnectionStatusChanged += OnDeviceConnectionStatusChanged;
+            LogMessage?.Invoke("[BLE] Đang mở phiên GATT...");
             _session = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
             CheckCurrent();
             if (_session?.CanMaintainConnection == true) _session.MaintainConnection = true;
-            var services = await device.GetGattServicesAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+            LogMessage?.Invoke("[BLE] Đang lấy dịch vụ điều khiển Sonca...");
+            // Reuse Windows' discovery of the exact Sonca service. A live INFO
+            // handshake below still verifies the speaker before enabling writes.
+            var services = await device.GetGattServicesForUuidAsync(SoncaBleProtocol.PrimaryServiceUuid, BluetoothCacheMode.Cached).AsTask().WaitAsync(TimeSpan.FromSeconds(8));
+            if (services.Status == GattCommunicationStatus.Success && services.Services.Count == 0)
+                services = await device.GetGattServicesForUuidAsync(SoncaBleProtocol.PrimaryServiceUuid, BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
+            if (services.Status == GattCommunicationStatus.Success && services.Services.Count == 0)
+                services = await device.GetGattServicesForUuidAsync(SoncaBleProtocol.StandardUartServiceUuid, BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
             _openServices.AddRange(services.Services);
             CheckCurrent();
             if (services.Status != GattCommunicationStatus.Success) throw new InvalidOperationException($"Không đọc được dịch vụ BLE: {services.Status}.");
             var service = services.Services.FirstOrDefault(s => s.Uuid == SoncaBleProtocol.PrimaryServiceUuid)
                 ?? services.Services.FirstOrDefault(s => s.Uuid == SoncaBleProtocol.StandardUartServiceUuid);
             if (service == null) throw new InvalidOperationException("Thiết bị không có dịch vụ điều khiển Sonca 5343/FFF0; không dùng kênh ghi bất kỳ.");
-            var chars = await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
+            LogMessage?.Invoke("[BLE] Đang lấy kênh ghi và phản hồi...");
+            var chars = await service.GetCharacteristicsAsync(BluetoothCacheMode.Cached).AsTask().WaitAsync(TimeSpan.FromSeconds(8));
+            if (chars.Status == GattCommunicationStatus.Success && (!chars.Characteristics.Any(c => c.Uuid == SoncaBleProtocol.WriteCharacteristicUuid1 || c.Uuid == SoncaBleProtocol.WriteCharacteristicUuid2)
+                || !chars.Characteristics.Any(c => c.Uuid == SoncaBleProtocol.NotifyCharacteristicUuid1 || c.Uuid == SoncaBleProtocol.NotifyCharacteristicUuid2)))
+                chars = await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
             CheckCurrent();
             if (chars.Status != GattCommunicationStatus.Success) throw new InvalidOperationException($"Không đọc được kênh điều khiển: {chars.Status}.");
             bool Writable(GattCharacteristic c) => c.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Write)
@@ -72,6 +140,7 @@ public sealed partial class SoncaBleManager
                 : properties.HasFlag(GattCharacteristicProperties.Indicate) ? GattClientCharacteristicConfigurationDescriptorValue.Indicate
                 : throw new InvalidOperationException("Kênh nhận không hỗ trợ Notify/Indicate.");
             _notifyCharacteristic.ValueChanged += OnCharacteristicValueChanged;
+            LogMessage?.Invoke("[BLE] Đang đăng ký phản hồi trực tiếp từ loa...");
             var subscription = await _notifyCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(notifyMode).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
             CheckCurrent();
             if (subscription != GattCommunicationStatus.Success) throw new InvalidOperationException($"Không đăng ký được phản hồi loa: {subscription}.");
@@ -80,6 +149,7 @@ public sealed partial class SoncaBleManager
             if (!await SendInfoQueryAsync()) throw new InvalidOperationException("GATT đã mở nhưng không gửi được truy vấn thông tin loa.");
             var info = await _infoReply.Task.WaitAsync(TimeSpan.FromSeconds(6));
             SupportsMixerControls = SoncaBleMixerProfile.SupportsInfo(info);
+            FirmwareIdentity = SoncaBuildIdentity.Firmware(info);
             _protocolReady = true;
             _mixerReadNotBefore = DateTime.UtcNow.AddMilliseconds(1500);
             LogMessage?.Invoke($"[BLE] INFO được loa xác nhận: {info.Payload.Length} byte.");

@@ -5,7 +5,7 @@ public static class ResponseSmoothing
 {
     public const int OctaveFraction = 24;
     public const int SourcePointsPerOctave = 192;
-    public const string AnalysisId = "FDW15_RAW192_S24_50-18000_V2";
+    public const string AnalysisId = "TK25_L125_R500_NOFDW_RAW192_S24_50-18000_V3";
 
     public static Dictionary<double, double> Octave24(IReadOnlyDictionary<double, double> source, IEnumerable<double> centers)
     {

@@ -66,11 +66,33 @@ internal static class OctaveEffectsUiChecks
         routingType.GetMethod("LoadRawStandardCurve", hidden)!.Invoke(routing, new object[] { path, "RECEIVED_RMS_DBFS_V1", false });
         if (((IReadOnlyDictionary<double, double>)routingType.GetField("_rawStandardCurve", hidden)!.GetValue(routing)!).Count != 0)
             throw new Exception("Mismatched raw sidecar was accepted for another CSV.");
-        File.WriteAllText(path, File.ReadAllText(path).Replace("# ResponseAnalysis=FDW15_RAW192_S24_50-18000_V2", "# ResponseAnalysis=OLD48"));
+        string analysisId = (string)assembly.GetType("SoncaAudioInspector.ResponseSmoothing")!.GetField("AnalysisId")!.GetRawConstantValue()!;
+        File.WriteAllText(path, File.ReadAllText(path).Replace("# ResponseAnalysis=" + analysisId, "# ResponseAnalysis=OLD48"));
         routingType.GetMethod("CheckAndLoadStandardDevice", hidden)!.Invoke(routing, null);
         if (routingType.GetField("_standardCurve", hidden)!.GetValue(routing) is Dictionary<double, double> old && old.Count > 0)
             throw new Exception("A 1/48 legacy line was silently used for 1/24 comparison.");
         Console.WriteLine("PASS raw/reference-effect restart readback, CSV hash pairing and incompatible smoothing rejection.");
+
+        var testType = assembly.GetType("SoncaAudioInspector.TestConfig")!;
+        object testConfig = JsonSerializer.Deserialize("""
+            {"id":"CONFIG_SYNC","name":"Model reference config","Playback Out":"OUT","Recording In":"IN",
+             "FrequencyResponseMethod":"LogSweep","LogSweepDurationSeconds":7.2,"Playback Level dBFS":-18,
+             "MinimumInputSignalDbFs":-80,"TestEffect":true,"ImpulseEffects":{"ExpectEcho":true,"ExpectReverb":true}}
+            """, testType)!;
+        routingType.GetMethod("ApplyTestCaseConfig")!.Invoke(routing, new[] { testConfig });
+        routingType.GetMethod("ConfigureProductionMeasurement", hidden)!.Invoke(routing, new[] { testConfig });
+        if (Math.Abs((double)runnerType.GetProperty("LogSweepDurationSeconds")!.GetValue(runner)! - 7.2) > .0001)
+            throw new Exception("Model duration ignored in manual/reference acquisition.");
+        string configPath = (string)routingType.GetMethod("GetStandardDeviceFileName", hidden)!.Invoke(routing, null)!;
+        routingType.GetMethod("SaveReferenceCurve", hidden)!.Invoke(routing, new object?[] { configPath, comparison.Keys.ToArray(), comparison.Values.ToArray(), 3.0, -20.0 });
+        routingType.GetMethod("CheckAndLoadStandardDevice", hidden)!.Invoke(routing, null);
+        if (routingType.GetField("_standardCurve", hidden)!.GetValue(routing) is not Dictionary<double,double> { Count: > 0 })
+            throw new Exception("Same-config model reference not reloaded.");
+        testType.GetProperty("MinimumInputSignalDbFs")!.SetValue(testConfig, (double?)-75);
+        routingType.GetMethod("CheckAndLoadStandardDevice", hidden)!.Invoke(routing, null);
+        if (routingType.GetField("_standardCurve", hidden)!.GetValue(routing) is Dictionary<double,double> { Count: > 0 })
+            throw new Exception("Legacy prefix lookup bypassed changed model configuration.");
+        Console.WriteLine("PASS ordinary model duration propagation and full-config CSV identity; old legacy-prefix reference rejected after config edit.");
 
         var warningBuilder = routingType.GetMethod("BuildSampleRateWarning", BindingFlags.Static | BindingFlags.NonPublic)!;
         foreach (object?[] rates in new object?[][] { new object?[] { 48000, 44100, 44100, null }, new object?[] { 44100, 48000, 44100, null },
@@ -92,7 +114,7 @@ internal static class OctaveEffectsUiChecks
 
         object rows = routingType.GetMethod("BuildMeasurementValues", hidden)!.Invoke(routing, new object[] { result, false })!;
         string all = string.Join("\n", ((System.Collections.IEnumerable)rows).Cast<object>().Select(r => r.ToString()));
-        foreach (string expected in new[] { "Sample rate", "Clipping", "SNR", "Clock", "C50", "Chẩn đoán echo/reverb", "THD+N" })
+        foreach (string expected in new[] { "Sample rate", "Clipping", "SNR", "Clock", "C50", "Echo/reverb trong bản thu", "THD+N" })
             if (!all.Contains(expected)) throw new Exception("Measurement details missing " + expected);
         var details = (Window)Activator.CreateInstance(assembly.GetType("SoncaAudioInspector.MeasurementDetailsWindow")!)!;
         details.GetType().GetMethod("Update")!.Invoke(details, new object[] { "Synthetic echo 200 ms + reverb · same sweep", rows, comparison, result });

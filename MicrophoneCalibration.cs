@@ -27,16 +27,17 @@ namespace SoncaAudioInspector
         /// </summary>
         public static MicrophoneCalibration LoadFromFile(string path)
         {
+            return LoadFromText(File.Exists(path) ? File.ReadAllText(path) : "", Path.GetFileName(path), path);
+        }
+
+        public static MicrophoneCalibration LoadFromText(string content, string name, string identity = "")
+        {
             var profile = new MicrophoneCalibration
             {
-                FilePath = path,
-                Name = Path.GetFileName(path)
+                FilePath = identity,
+                Name = name
             };
-
-            if (!File.Exists(path))
-                return profile;
-
-            string[] lines = File.ReadAllLines(path);
+            string[] lines = content.Replace("\r", "").Split('\n');
             foreach (string rawLine in lines)
             {
                 string line = rawLine.Trim();

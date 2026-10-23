@@ -10,8 +10,32 @@ var validEvidence = new MeasurementDiagnosisEvidence
     Response = new[] { 100.0, 1000.0, 10000.0 }.Select(f => new DiagnosisResponsePoint(f, -36, -30, 3)).ToArray()
 };
 string Describe(MeasurementDiagnosisEvidence e) => string.Join(" ", SpeakerMeasurementDiagnosis.DescribeMeasurement(e));
-if (!Describe(validEvidence).Contains("thấp hơn line chuẩn khoảng 6.0 dB"))
+if (!Describe(validEvidence).Contains("yếu hơn line chuẩn khoảng 6.0 dB"))
     throw new InvalidOperationException("Uniform volume loss was hidden from diagnosis.");
+var normalized = validEvidence with
+{
+    NormalizedAtOneKilohertz = true, MeasuredOneKilohertzDbFs = -36, ReferenceOneKilohertzDbFs = -30,
+    Response = validEvidence.Response.Select(p => p with { MeasuredDbFs = 0, TargetDbFs = 0 }).ToArray()
+};
+if (!Describe(normalized).Contains("yếu hơn line chuẩn khoảng 6.0 dB")) throw new Exception("Normalized curves hid absolute volume loss.");
+if (!Describe(normalized with { MeasuredOneKilohertzDbFs = -28 }).Contains("mạnh hơn line chuẩn khoảng 2.0 dB")) throw new Exception("Positive volume delta has wrong sign.");
+if (!Describe(normalized with { MeasuredOneKilohertzDbFs = -30 }).Contains("tương đương")) throw new Exception("Equal levels were called weak/strong.");
+if (Describe(normalized with { ReferenceOneKilohertzDbFs = double.NaN }).Contains("Loa yếu hơn")) throw new Exception("Missing absolute reference produced a volume verdict.");
+foreach (var effect in new[] { (false, false, "Chưa phát hiện echo/reverb"), (true, false, "Có echo trong bản thu"),
+    (false, true, "Có reverb trong bản thu"), (true, true, "Có reverb trong bản thu") })
+{
+    var evidence = validEvidence with { HasEffectEvidence = true, EffectClassificationReliable = true,
+        EchoDetected = effect.Item1, ReverbDetected = effect.Item2, EchoDelayMs = 200 };
+    if (!Describe(evidence).Contains(effect.Item3)) throw new Exception("Effect classification label mismatch.");
+    var uncertain = evidence with { EffectClassificationReliable = false, ResponseValid = false, NoiseDbFs = -49 };
+    if (effect.Item1 && !Describe(uncertain).Contains("Có echo trong bản thu")
+        || effect.Item2 && !Describe(uncertain).Contains("Có reverb trong bản thu")) throw new Exception("A detected effect was hidden by another measurement's validity.");
+    if ((!effect.Item1 || !effect.Item2) && Describe(uncertain).Contains("Chưa phát hiện")) throw new Exception("Uncertain absence was classified.");
+    if (Describe(evidence with { Clipped = true }).Contains("Có echo") || Describe(evidence with { SignalTooWeak = true }).Contains("Có reverb"))
+        throw new Exception("Clipped/silent capture produced an effect observation.");
+    if (Describe(evidence).Contains("tham khảo") || Describe(evidence).Contains("chưa phán đoán") || Describe(evidence).Length > 420)
+        throw new Exception("Summary is verbose or retained boilerplate.");
+}
 var inverted = validEvidence with { ReliableImpulse = true, Polarity = "INVERTED" };
 if (Describe(inverted).Contains("đảo cực") || Describe(inverted).Contains("đấu ngược"))
     throw new InvalidOperationException("A single impulse sign was used to diagnose reversed wiring.");

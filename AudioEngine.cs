@@ -28,7 +28,7 @@ namespace SoncaAudioInspector;
 
 
 
-public class AudioEngine : IDisposable
+public partial class AudioEngine : IDisposable
 
 {
 
@@ -680,7 +680,7 @@ public class AudioEngine : IDisposable
 
 
 
-	public async Task<float[]> PlayAndRecordAsync(MMDevice playbackDevice, MMDevice recordingDevice, SignalType signalType, double frequency, double durationSeconds, Action<float[]>? realTimeRecordedCallback = null, bool forceSaveFiles = false, double[]? multitoneFrequencies = null, double[]? multitoneAmplitudes = null, double multitoneSampleScale = 1.0, CancellationToken cancellationToken = default(CancellationToken), int? recordingChannel = null, float[]? customSweepSamples = null, double signalSampleScale = 1.0)
+		public async Task<float[]> PlayAndRecordAsync(MMDevice playbackDevice, MMDevice recordingDevice, SignalType signalType, double frequency, double durationSeconds, Action<float[]>? realTimeRecordedCallback = null, bool forceSaveFiles = false, double[]? multitoneFrequencies = null, double[]? multitoneAmplitudes = null, double multitoneSampleScale = 1.0, CancellationToken cancellationToken = default(CancellationToken), int? recordingChannel = null, float[]? customSweepSamples = null, double signalSampleScale = 1.0, Action<float[], float[]>? stereoObserver = null)
 
 	{
 		using IDisposable measurement = BeginMeasurement();
@@ -743,6 +743,7 @@ public class AudioEngine : IDisposable
 					RecordingSampleRate = deviceFormat.SampleRate;
 
 					int channels = deviceFormat.Channels;
+						if (stereoObserver != null && channels < 2) throw new InvalidOperationException("Impedance cần hai kênh thu đồng thời, độc lập.");
 
 					int? num2 = recordingChannel;
 
@@ -767,6 +768,9 @@ public class AudioEngine : IDisposable
 							{
 
 								float[] array3 = CaptureSampleDecoder.Decode(e.Buffer, e.BytesRecorded, deviceFormat, 1.0, recordingChannel);
+								if (stereoObserver != null) stereoObserver(
+									CaptureSampleDecoder.Decode(e.Buffer, e.BytesRecorded, deviceFormat, 1.0, 0),
+									CaptureSampleDecoder.Decode(e.Buffer, e.BytesRecorded, deviceFormat, 1.0, 1));
 
 								lock (_lock)
 
