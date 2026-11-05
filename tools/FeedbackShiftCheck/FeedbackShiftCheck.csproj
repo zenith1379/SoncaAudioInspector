@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><DefaultItemExcludes>$(DefaultItemExcludes);obj/**;obj-feedback-verified/**</DefaultItemExcludes></PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../FeedbackShiftMeasurement.cs" Link="FeedbackShiftMeasurement.cs"/>
-    <Compile Include="../../CaptureSampleDecoder.cs" Link="CaptureSampleDecoder.cs"/>
-    <PackageReference Include="MathNet.Numerics" Version="5.0.0"/>
-    <PackageReference Include="NAudio" Version="2.3.0"/>
+    <Compile Include="../../src/Measurements/Diagnostics/FeedbackShiftMeasurement.cs" Link="FeedbackShiftMeasurement.cs" />
+    <Compile Include="../../src/Audio/CaptureSampleDecoder.cs" Link="CaptureSampleDecoder.cs" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
   </ItemGroup>
 </Project>

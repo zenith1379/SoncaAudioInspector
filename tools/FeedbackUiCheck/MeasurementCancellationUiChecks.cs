@@ -126,6 +126,35 @@ internal static class MeasurementCancellationUiChecks
         Check(routing.FindName("ChkNormalizeOneKilohertz") == null, "Removed normalization checkbox still present.");
         Console.WriteLine("PASS noise-only input triggers transmit/receive popup; absent sweep cannot produce a THD verdict; normalization option removed.");
         details.Close();
+        // Generic models use the same start/continue/discard contract as C360.
+        var cases = (System.Collections.IList)Field("_autoTestCases");
+        var rowType = assembly.GetType("SoncaAudioInspector.AutoTestCaseItem")!;
+        var configType = assembly.GetType("SoncaAudioInspector.TestConfig")!;
+        for(int i=0;i<3;i++)
+        {
+            var row = Activator.CreateInstance(rowType)!;
+            rowType.GetProperty("Config")!.SetValue(row,Activator.CreateInstance(configType));
+            rowType.GetProperty("Id")!.SetValue(row,$"IO{i+1:000}");
+            rowType.GetProperty("Status")!.SetValue(row,i==0?"PASS":"WAITING");
+            cases.Add(row);
+        }
+        string resumeFolder = Path.Combine(AppContext.BaseDirectory,"generic-resume-check");Directory.CreateDirectory(resumeFolder);
+        File.WriteAllBytes(Path.Combine(resumeFolder,"FRA-IO001.png"),new byte[]{1}); // Existence-only mocked saved graph.
+        ((List<string>)Field("_autoTestGraphPaths")).Add(Path.Combine(resumeFolder,"FRA-IO001.png"));
+        var caseArray = Array.CreateInstance(rowType,cases.Count);cases.CopyTo(caseArray,0);
+        var session = Activator.CreateInstance(type.GetNestedType("AutoTestResumeSession",BindingFlags.NonPublic)!,
+            "generic-model","serial-resume",resumeFolder,caseArray,double.Parse(((TextBox)routing.FindName("TxtFreqTolerance")).Text,System.Globalization.CultureInfo.InvariantCulture));
+        Set("_autoTestResumeSession",session);Set("_autoTestSessionFolder",resumeFolder);
+        Check((bool)type.GetMethod("PreservePassedAutoTestsForResume",hidden)!.Invoke(routing,null)!,"Generic interrupted session was not retained");
+        type.GetMethod("UpdateAutoTestStartButton",hidden)!.Invoke(routing,null);
+        Check(((Button)routing.FindName("BtnStartAutoTest")).Content.ToString()=="TIẾP TỤC ĐO TỰ ĐỘNG"
+            && (int)type.GetMethod("GetAutoTestResumeIndex",hidden)!.Invoke(routing,new object[]{"generic-model"})! == 1,
+            "Generic model did not continue after its saved PASS graph");
+        type.GetMethod("CancelAndDiscardCurrentMeasurement")!.Invoke(routing,null);
+        Check(((Button)routing.FindName("BtnStartAutoTest")).Content.ToString()=="BẮT ĐẦU ĐO TỰ ĐỘNG"
+            && cases.Cast<object>().All(r=>rowType.GetProperty("Status")!.GetValue(r)?.ToString()=="WAITING"),
+            "Generic discard preserved old PASS results or its continuation label");
+        Console.WriteLine("PASS generic model continuation from saved PASS/image and explicit complete-session discard.");
         ((IDisposable)Field("_audioEngine")).Dispose();
         Console.WriteLine("PASS measured raw 14% THD displayed without invented broadband SNR gate; actual invalid capture still suppressed.");
         Console.WriteLine("PASS frequency-dependent sweep THD retains its source label in the main inspection panel.");

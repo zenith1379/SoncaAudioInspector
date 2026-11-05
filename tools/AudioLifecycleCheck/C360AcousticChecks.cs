@@ -9,7 +9,7 @@ internal static class C360AcousticChecks
         void Reject(Action action, string why) { try { action(); } catch { return; } throw new Exception(why); }
         var model = C360ModelDefinition.Create(); var io = model.testItems.InOut;
         var acoustic = io.Tests.Single(t => t.SpeakerStage == "AcousticMic");
-        Check(acoustic.id == "IO005" && !acoustic.IsEnabled && acoustic.AcousticSetupPending, "Acoustic stage must start as a disabled draft");
+        Check(acoustic.id == "IO006" && !acoustic.IsEnabled && acoustic.AcousticSetupPending, "Acoustic stage must start as a disabled draft");
         acoustic.Enable = true;
         Reject(() => C360ModelDefinition.Validate(io), "Provisional microphone setup was allowed to run");
         acoustic.AcousticSetupPending = false;

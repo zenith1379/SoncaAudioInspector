@@ -16,7 +16,9 @@ internal static class IndependentAudioProbe
         bool faultStimulus = args.Contains("--allow-fault-stimulus");
         if (faultStimulus && (mode != "tone" || amplitude > .05 || Opt("--rounds", "10") != "1"))
             throw new ArgumentException("Fault-state diagnostic stimulus is limited to one tone at amplitude <= .05.");
-        string directory = Path.GetFullPath(Opt("--save", ".artifacts/audio-lifecycle/isolate"));
+        string save = Opt("--save", "");
+        if (string.IsNullOrWhiteSpace(save)) throw new ArgumentException("Provide --save=<dated artifact directory> for diagnostic captures.");
+        string directory = Path.GetFullPath(save);
         Directory.CreateDirectory(directory);
         using var enumerator = new MMDeviceEnumerator();
         using var input = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).Single(d => d.FriendlyName.Contains("FastTrack Pro"));

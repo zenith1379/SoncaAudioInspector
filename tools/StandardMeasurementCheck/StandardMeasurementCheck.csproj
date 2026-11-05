@@ -8,21 +8,21 @@
   <ItemGroup>
     <Compile Remove=".artifacts\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
-    <Compile Include="..\..\StandardAcousticMeasurement.cs" Link="StandardAcousticMeasurement.cs" />
-    <Compile Include="..\..\StandardAcousticMeasurement.HighOrder.cs" Link="StandardAcousticMeasurement.HighOrder.cs" />
-    <Compile Include="..\..\MechanicalDiagnostics.cs" Link="MechanicalDiagnostics.cs" />
-    <Compile Include="..\..\SignalDiagnostics.cs" Link="SignalDiagnostics.cs" />
-    <Compile Include="..\..\AdvancedAudioMeasurement.cs" Link="AdvancedAudioMeasurement.cs" />
-    <Compile Include="..\..\DspProcessor.cs" Link="DspProcessor.cs" />
-    <Compile Include="..\..\ProductionMeasurement.cs" Link="ProductionMeasurement.cs" />
-    <Compile Include="..\..\SweepFourier.cs" Link="SweepFourier.cs" />
-    <Compile Include="..\..\ImpulseEffects.cs" Link="ImpulseEffects.cs" />
-    <Compile Include="..\..\ReverbDecayDiagnostics.cs" Link="ReverbDecayDiagnostics.cs" />
-    <Compile Include="..\..\ImpedanceMeasurement.cs" Link="ImpedanceMeasurement.cs" />
-    <Compile Include="..\..\ImpulsePlotAnalysis.cs" Link="ImpulsePlotAnalysis.cs" />
-    <Compile Include="..\..\ResponseSmoothing.cs" Link="ResponseSmoothing.cs" />
-    <Compile Include="..\..\SweepDistortionSummary.cs" Link="SweepDistortionSummary.cs" />
-    <Compile Include="..\..\MicrophoneCalibration.cs" Link="MicrophoneCalibration.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\StandardAcousticMeasurement.cs" Link="StandardAcousticMeasurement.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\StandardAcousticMeasurement.HighOrder.cs" Link="StandardAcousticMeasurement.HighOrder.cs" />
+    <Compile Include="..\..\src\Measurements\Diagnostics\MechanicalDiagnostics.cs" Link="MechanicalDiagnostics.cs" />
+    <Compile Include="..\..\src\Measurements\Diagnostics\SignalDiagnostics.cs" Link="SignalDiagnostics.cs" />
+    <Compile Include="..\..\src\Measurements\AdvancedAudioMeasurement.cs" Link="AdvancedAudioMeasurement.cs" />
+    <Compile Include="..\..\src\Audio\DspProcessor.cs" Link="DspProcessor.cs" />
+    <Compile Include="..\..\src\Measurements\ProductionMeasurement.cs" Link="ProductionMeasurement.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\SweepFourier.cs" Link="SweepFourier.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\ImpulseEffects.cs" Link="ImpulseEffects.cs" />
+    <Compile Include="..\..\src\Measurements\Diagnostics\ReverbDecayDiagnostics.cs" Link="ReverbDecayDiagnostics.cs" />
+    <Compile Include="..\..\src\Measurements\Impedance\ImpedanceMeasurement.cs" Link="ImpedanceMeasurement.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\ImpulsePlotAnalysis.cs" Link="ImpulsePlotAnalysis.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\ResponseSmoothing.cs" Link="ResponseSmoothing.cs" />
+    <Compile Include="..\..\src\Measurements\Sweep\SweepDistortionSummary.cs" Link="SweepDistortionSummary.cs" />
+    <Compile Include="..\..\src\Measurements\Calibration\MicrophoneCalibration.cs" Link="MicrophoneCalibration.cs" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
   </ItemGroup>
 </Project>

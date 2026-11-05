@@ -7,10 +7,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
-    <Compile Include="..\..\AdvancedAudioMeasurement.cs" Link="AdvancedAudioMeasurement.cs" />
-    <Compile Include="..\..\SpeakerMeasurementDiagnosis.cs" Link="SpeakerMeasurementDiagnosis.cs" />
-    <Compile Include="..\..\DspProcessor.cs" Link="DspProcessor.cs" />
-    <Compile Include="..\..\ProductionMeasurement.cs" Link="ProductionMeasurement.cs" />
+    <Compile Include="..\..\src\Measurements\AdvancedAudioMeasurement.cs" Link="AdvancedAudioMeasurement.cs" />
+    <Compile Include="..\..\src\Measurements\Diagnostics\SpeakerMeasurementDiagnosis.cs" Link="SpeakerMeasurementDiagnosis.cs" />
+    <Compile Include="..\..\src\Audio\DspProcessor.cs" Link="DspProcessor.cs" />
+    <Compile Include="..\..\src\Measurements\ProductionMeasurement.cs" Link="ProductionMeasurement.cs" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
   </ItemGroup>
 </Project>

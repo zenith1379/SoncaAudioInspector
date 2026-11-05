@@ -56,7 +56,12 @@ function Publish-Portable {
     }
     $saveStandardsSource = Join-Path $projectRoot "save standards"
     if (Test-Path -LiteralPath $saveStandardsSource) {
-        Copy-Item -LiteralPath $saveStandardsSource -Destination $publishPath -Recurse -Force
+        $saveStandardsTarget = Join-Path $publishPath 'save standards'
+        New-Item -ItemType Directory -Path $saveStandardsTarget -Force | Out-Null
+        # The cleanup archive contains historical local data, not live references.
+        foreach ($reference in Get-ChildItem -LiteralPath $saveStandardsSource -Force | Where-Object Name -ne 'retained-artifact-data') {
+            Copy-Item -LiteralPath $reference.FullName -Destination $saveStandardsTarget -Recurse -Force
+        }
     }
 
     $requiredPublishFiles = @(

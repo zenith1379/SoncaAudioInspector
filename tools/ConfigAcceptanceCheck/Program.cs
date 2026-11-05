@@ -36,6 +36,7 @@ internal static class Program
         if (args.Length > 3 && args[2] == "--live-qa") { LiveQaUploadChecks.Run(Path.GetFullPath(args[3]), Path.GetFullPath(args[1])).GetAwaiter().GetResult(); return; }
         if (args.Length > 3 && args[2] == "--verify-qa-receipt") { LiveQaUploadChecks.Run(Path.GetFullPath(args[3]), Path.GetFullPath(args[1]), true).GetAwaiter().GetResult(); return; }
         if (args.Length > 2 && args[2] == "--live-server") { LiveServerChecks.Run(Path.GetFullPath(args[1])).GetAwaiter().GetResult(); return; }
+        if(args.Length>3 && args[2]=="--sync-c360") {ModelSyncChecks.C360(Path.GetFullPath(args[3]),Path.GetFullPath(args[1])).GetAwaiter().GetResult();return;}
         Run(directory, Path.GetFullPath(args[1]));
     }
     private static void Run(string directory, string output)
@@ -58,6 +59,24 @@ internal static class Program
             JsonSerializer.Serialize(new CheckingConfig { models = new() { localModel } }),
             JsonSerializer.Serialize(new CheckingConfig { models = new() { firmwareModel } }) })!;
         Check(JsonSerializer.Deserialize<CheckingConfig>(combined)!.models[0].testItems.InOut.Tests[0].TestEffect, "Old firmware config overwrote newer local/shared audio criteria");
+        var oldMemory=new CheckingConfig{models=new(){new ModelConfig{model="C360",AudioConfigUpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(-5)}}};
+        oldMemory.models[0].itemCount=3;
+        var newDisk=new CheckingConfig{models=new(){new ModelConfig{model="C360",AudioConfigUpdatedUtc=DateTimeOffset.UtcNow}}};
+        newDisk.models[0].testItems.InOut.TestVolume=ModelTestVolume.C360Defaults();
+        var keep=typeof(MainWindow).GetMethod("KeepNewerAudioConfiguration",BindingFlags.Static|BindingFlags.NonPublic)!;
+        keep.Invoke(null,new object[]{oldMemory,newDisk});
+        Check(oldMemory.models[0].testItems.InOut.TestVolume is {BleMusicPercent:50,WindowsPlaybackPercent:75},"Stale app save lost newer model volume");
+        Check(oldMemory.models[0].itemCount==3,"Audio preservation replaced unrelated assembly configuration");
+        oldMemory.models[0]=new ModelConfig{model="C360",AudioConfigUpdatedUtc=DateTimeOffset.UtcNow.AddMinutes(1)};
+        keep.Invoke(null,new object[]{oldMemory,newDisk});Check(oldMemory.models[0].testItems.InOut.TestVolume==null,"Older disk overwrote explicit newer edit");
+        var route=(AudioRouting)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(AudioRouting));
+        var criterion=new TestConfig();
+        typeof(AudioRouting).GetField("_appliedTestConfig",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(route,criterion);
+        var fingerprint=typeof(AudioRouting).GetMethod("AppliedModelTestFingerprint",BindingFlags.Instance|BindingFlags.NonPublic)!;
+        string originalKey=(string)fingerprint.Invoke(route,null)!;criterion.MaximumRuns=5;criterion.RequiredPasses=4;
+        Check((string)fingerprint.Invoke(route,null)! == originalKey,"Generic vote edit invalidated acquisition reference");
+        typeof(AudioRouting).GetField("_activeInOutConfig",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(route,new InOutConfig{TestVolume=ModelTestVolume.C360Defaults()});
+        Check((string)fingerprint.Invoke(route,null)! != originalKey,"Shared model volume did not invalidate generic acquisition reference");
         config.ValidateAdditionalTests();
         Reject(() => new TestConfig { TestAirLeak = true, MechanicalFrequencyHz = 20 }.ValidateAdditionalTests(), "Short low-frequency tone accepted");
         Reject(() => new TestConfig { TestSoundLevel = true, SoundLevelToleranceDb = double.NaN }.ValidateAdditionalTests(), "NaN tolerance accepted");
@@ -94,12 +113,83 @@ internal static class Program
         var app = new App(); app.InitializeComponent();
         typeof(Application).GetField("_startupUri", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(app, null);
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        try { CheckEditor(output); CheckTheme(output); CheckTracking(); CheckBleTheme(output); CheckCalibration(output); }
+        try { CheckEditor(output);CheckDetailsView(output); CheckModelVolumeGate(output); CheckTheme(output); CheckTracking(); CheckBleTheme(output); CheckCalibration(output); CheckRateConsent(output); }
         finally { app.Shutdown(); }
         File.WriteAllText(Path.Combine(output, "checks.txt"), $"PASS {_checks} config, acceptance and WPF checks. Synthetic/software only; no hardware tones or BLE writes.\n");
         Console.WriteLine($"PASS {_checks} config, acceptance and WPF checks");
     }
     private static T Private<T>(object obj, string name) => (T)obj.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(obj)!;
+    private static void CheckRateConsent(string output)
+    {
+        var good=new MeasurementSampleRates(44100,new("out","Actual playback","PHÁT",44100,44100),new("in","Actual capture","THU",44100,44100));
+        var bad=good with{Recording=good.Recording with{StreamRate=48000}};
+        var consent=new MeasurementSampleRateConsent();int prompts=0;
+        Task<bool> Ask(bool answer){prompts++;return Task.FromResult(answer);}
+        Check(consent.ConfirmAsync(good,_=>Ask(false)).GetAwaiter().GetResult()&&prompts==0,"Standard 44.1 kHz unexpectedly required consent");
+        Check(!consent.ConfirmAsync(bad,_=>Ask(false)).GetAwaiter().GetResult()&&prompts==1,"48 kHz stream continued without acceptance");
+        Check(consent.ConfirmAsync(bad,_=>Ask(true)).GetAwaiter().GetResult()&&prompts==2,"Explicit Yes not accepted");
+        Check(consent.ConfirmAsync(bad,_=>Ask(false)).GetAwaiter().GetResult()&&prompts==2,"Same approved stream prompted on every repeat");
+        Check(!consent.ConfirmAsync(bad with{Recording=bad.Recording with{StreamRate=96000}},_=>Ask(false)).GetAwaiter().GetResult(),"Changed stream reused old consent");
+        consent.Reset();Check(!consent.ConfirmAsync(bad,_=>Ask(false)).GetAwaiter().GetResult(),"New workflow reused old consent");
+        Reject(()=>consent.ConfirmAsync(good with{Recording=good.Recording with{StreamRate=0}},_=>Ask(true)).GetAwaiter().GetResult(),"Unknown sample rate silently continued");
+        using var canceled=new CancellationTokenSource();canceled.Cancel();
+        Reject(()=>consent.ConfirmAsync(bad,_=>Ask(true),canceled.Token).GetAwaiter().GetResult(),"Canceled confirmation continued");
+        var create=typeof(AudioRouting).GetMethod("CreateSampleRateQuestion",BindingFlags.NonPublic|BindingFlags.Static)!;
+        var dialog=(ModernMessageBox)create.Invoke(null,new object[]{bad})!;dialog.Show();dialog.UpdateLayout();
+        Check(!((Button)dialog.FindName("BtnYes")).IsDefault&&((Button)dialog.FindName("BtnNo")).IsDefault,"Sample rate dialog default is not No");
+        Check(((TextBlock)dialog.FindName("TxtMessage")).Text.Contains("48000")&&bad.Message.Contains("Actual capture"),"Dialog omitted actual stream rate/device");
+        Render(dialog,Path.Combine(output,"sample-rate-confirmation.png"));
+        ((Button)dialog.FindName("BtnNo")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!dialog.Accepted,"No accepted measurement");
+        var yes=(ModernMessageBox)create.Invoke(null,new object[]{bad})!;yes.Show();
+        ((Button)yes.FindName("BtnYes")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(yes.Accepted,"Yes was lost after dialog close");
+        var row=new AutoTestCaseItem{Id="IO004",Name="LINE IN",Config=new TestConfig{PlaybackOut="LINE IN",RecordingIn="LINE OUT"},
+            Acquisition=new(-12,44100,48000,false,null,null,"out","in",.5,DateTimeOffset.UtcNow){PlaybackDeviceName="Actual playback",RecordingDeviceName="Actual capture"}};
+        string header=AudioQaRouteDetails.Header(row,null);
+        Check(header.Contains("IO004")&&header.Contains("LINE OUT")&&header.Contains("Actual playback")&&header.Contains("Actual capture"),"THD detail omitted route or actual endpoint names");
+        row.Acquisition=row.Acquisition!.WithSampleRates(bad,true);
+        Check(row.Acquisition.SampleRateContinuationAccepted && row.Acquisition.RecordingDefaultSampleRate==44100
+            && AudioQaRouteDetails.Header(row,null).Contains("Đã chọn tiếp tục"),"Accepted nonstandard rates were not retained in the measurement detail");
+        Check(row.Acquisition.WithSampleRates(bad with{Recording=bad.Recording with{Id="other"}},false)==row.Acquisition,
+            "A snapshot used rates from another endpoint");
+    }
+    private static void CheckDetailsView(string output)
+    {
+        var window=new MeasurementDetailsWindow();window.WindowState=WindowState.Normal;window.Width=1200;window.Height=820;
+        window.Show();
+        try
+        {
+            var tabs=Private<TabControl>(window,"_tabs");
+            Check(!tabs.Items.OfType<TabItem>().Any(t=>t.Header.ToString()!.StartsWith("Config"))
+                && !Visuals<Button>(window).Any(b=>b.Name=="SaveTestRunPolicy"),"Ctrl Shift I still exposes route configuration");
+            Check(tabs.Items.OfType<TabItem>().Any(t=>t.Header.ToString()=="Impedance · Ω")
+                && tabs.Items.OfType<TabItem>().Any(t=>t.Header.ToString()=="Impulse / ETC / Schroeder"),"Removing config removed a measurement tab");
+            Render(window,Path.Combine(output,"ctrl-shift-i-details.png"));
+        }
+        finally{window.Close();}
+    }
+    private static void CheckModelVolumeGate(string output)
+    {
+        var policy=new ModelTestVolume {BleMusicPercent=50};
+        IReadOnlyDictionary<ushort,ushort> state=new Dictionary<ushort,ushort> {[SoncaBleMixerProfile.MusicVolume]=SoncaBleMixerProfile.VolumeToRaw(70)};
+        var dialog=new ModelVolumePreflightWindow(policy,()=>Task.FromResult(state),state,CancellationToken.None);
+        Exception? failure=null;
+        dialog.Loaded+=(_,_)=>dialog.Dispatcher.BeginInvoke(new Action(()=>
+        {
+            try
+            {
+                var button=Visuals<Button>(dialog).Single(b=>b.Name=="RecheckVolume");
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check(dialog.IsVisible && Visuals<TextBlock>(dialog).Single(t=>t.Name=="VolumeMismatch").Text.Contains("50"),"Wrong BLE volume bypassed gate");
+                Render(dialog,Path.Combine(output,"model-volume-gate.png"));
+                state=new Dictionary<ushort,ushort> {[SoncaBleMixerProfile.MusicVolume]=4064};
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }
+            catch(Exception ex) { failure=ex; dialog.Close(); }
+        }));
+        bool? accepted=dialog.ShowDialog();
+        if(failure!=null) throw failure;
+        Check(accepted==true,"Fresh correct BLE readback did not release gate");
+    }
     private static void CheckTracking()
     {
         var routing = (AudioRouting)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(AudioRouting));
@@ -169,14 +259,99 @@ internal static class Program
         try
         {
             Render(window, Path.Combine(output, "config-routes.png"));
+            var routeFields = Visuals<TextBox>(window).Where(t => t.ToolTip != null).ToArray();
+            Check(routeFields[0].ToolTip.ToString() == "Tên bài đo" && routeFields[1].ToolTip.ToString() == "Mã bài đo (không trùng)",
+                "Test name and code must be the first two configuration fields");
+            var maximum=Visuals<TextBox>(window).Single(t=>t.ToolTip?.ToString()?.StartsWith("MaximumRuns") == true);
+            var required=Visuals<TextBox>(window).Single(t=>t.ToolTip?.ToString()?.StartsWith("RequiredPasses") == true);
+            maximum.Text="4";required.Text="3";
+            var configured=(ModelConfig)Invoke(window,"ReadEditorModel");
+            Check(configured.testItems.InOut.Tests[0] is {MaximumRuns:4,RequiredPasses:3} && configured.testItems.InOut.Tests[1] is {MaximumRuns:3,RequiredPasses:2},"Run policy did not stay independent per test");
+            required.Text="5";Reject(()=>Invoke(window,"ReadEditorModel"),"Required passes greater than runs saved");required.Text="3";
+            var length=Visuals<ComboBox>(window).Single(c=>c.ToolTip?.ToString()=="Sweep length");
+            Check(length.SelectedItem?.ToString()=="64K","New test sweep length does not default to 64K");
+            length.SelectedItem="128K";
+            Check(((ModelConfig)Invoke(window,"ReadEditorModel")).testItems.InOut.Tests[0].SweepLengthSamples==131072,"Sweep length choice was not saved as a sample count");
+            length.SelectedItem="64K";
+            var routeTabs = Visuals<TabControl>(window).First(t=>t!=Private<TabControl>(window,"_tabs"));
+            Check(!Visuals<TextBox>(window).Any(t=>t.ToolTip?.ToString()?.StartsWith("freq_range")==true),"Criteria still clutter signal-path tab");
+            routeTabs.SelectedItem=routeTabs.Items.OfType<TabItem>().Single(t=>t.Header.ToString()=="Bật/tắt kiểm tra");window.UpdateLayout();
+            var range = Visuals<TextBox>(window).Single(t => t.ToolTip?.ToString()?.StartsWith("freq_range") == true);
+            var thd1000 = Visuals<TextBox>(window).Single(t => t.ToolTip?.ToString()?.StartsWith("THD_1000Hz") == true);
+            range.Text = "100–12000"; thd1000.Text = "0.2";
+            var criteriaModel = (ModelConfig)Invoke(window, "ReadEditorModel");
+            Check(criteriaModel.testItems.InOut.Tests[0].FrequencyRange.SequenceEqual(new[] {100d,12000d}) && criteriaModel.testItems.InOut.Tests[0].Thd1000Hz == .2, "Criteria form did not update JSON/save");
+            Check(criteriaModel.testItems.InOut.Tests[1].FrequencyRange.SequenceEqual(new[] {50d,18000d}) && criteriaModel.testItems.InOut.Tests[1].Thd1000Hz == .5, "Defaults missing from another test");
+            range.Text = "15000–12000";
+            Reject(() => Invoke(window, "ReadEditorModel"), "Descending evaluation range saved");
+            range.Text = "[100, 12000]";
+            criteriaModel = (ModelConfig)Invoke(window, "ReadEditorModel");
+            Check(criteriaModel.testItems.InOut.Tests[0].FrequencyRange.SequenceEqual(new[]{100d,12000d}), "Single range field lost JSON-array compatibility");
+            range.Text="-100-12000"; Reject(()=>Invoke(window,"ReadEditorModel"),"Negative range text became a positive range");
+            range.Text="100-12000 Hz";
+            var thd80=Visuals<CheckBox>(window).Single(c=>c.Content.ToString()!.StartsWith("THD_80"));
+            var thd4000=Visuals<CheckBox>(window).Single(c=>c.Content.ToString()!.StartsWith("THD_4000"));
+            Check(thd80.IsChecked==false && thd4000.IsChecked==false,"Optional THD flags not off by default");
+            var bassLimit = Visuals<TextBox>(window).Single(t => t.ToolTip?.ToString() == "Giới hạn THD 80 Hz (%)");
+            var trebleLimit = Visuals<TextBox>(window).Single(t => t.ToolTip?.ToString() == "Giới hạn THD 4000 Hz (%)");
+            Check(!bassLimit.IsVisible && !trebleLimit.IsVisible, "Unchecked THD limits still occupy the form");
+            foreach (var scroll in Visuals<ScrollViewer>(window)) scroll.ScrollToBottom(); window.UpdateLayout();
+            Render(window, Path.Combine(output, "thd-unchecked-collapsed.png"));
+            thd80.IsChecked=true; thd4000.IsChecked=true;
+            window.UpdateLayout();
+            Check(bassLimit.IsVisible && trebleLimit.IsVisible, "Checking THD does not reveal its limit");
+            bassLimit.Text = "1"; trebleLimit.Text = "0.7";
+            var flagged=(ModelConfig)Invoke(window,"ReadEditorModel");
+            Check(flagged.testItems.InOut.Tests[0] is {EvaluateThd80:true,EvaluateThd4000:true},"THD checkboxes did not save");
+            Check(flagged.testItems.InOut.Tests[0] is {BassThdLimit:1,TrebleThdLimit:.7}, "Expanded THD limits were not saved");
+            bassLimit.Text = "bad";
+            Reject(() => Invoke(window, "ReadEditorModel"), "Invalid enabled THD limit was accepted");
+            thd80.IsChecked = false; window.UpdateLayout();
+            var disabled = (ModelConfig)Invoke(window, "ReadEditorModel");
+            Check(!bassLimit.IsVisible && disabled.testItems.InOut.Tests[0] is {EvaluateThd80:false,BassThdLimit:1,EvaluateThd4000:true,TrebleThdLimit:.7},
+                "Disabling THD must skip hidden text validation and retain the last valid limit");
+            var allowOutliers=Visuals<CheckBox>(window).Single(c=>c.Name=="LineOutliers");
+            var outlierPercent=Visuals<TextBox>(window).Single(t=>t.ToolTip?.ToString()=="Tỷ lệ số điểm được vượt biên (%)");
+            Check(allowOutliers.IsChecked==false&&!outlierPercent.IsVisible,"LINE outlier quota must be off and collapsed by default");
+            allowOutliers.IsChecked=true;window.UpdateLayout();Check(outlierPercent.IsVisible,"Quota toggle did not reveal percentage");
+            outlierPercent.Text="5";
+            Check(((ModelConfig)Invoke(window,"ReadEditorModel")).testItems.InOut.Tests[0] is {AllowLineOutliers:true,AllowedLineOutlierPercent:5},"Quota did not round trip through model JSON");
+            outlierPercent.Text="101";Reject(()=>Invoke(window,"ReadEditorModel"),"Quota over 100% was accepted");
+            allowOutliers.IsChecked=false;window.UpdateLayout();
+            Check(!outlierPercent.IsVisible && ((ModelConfig)Invoke(window,"ReadEditorModel")).testItems.InOut.Tests[0] is {AllowLineOutliers:false,AllowedLineOutlierPercent:5},"Disabled quota validated hidden text or lost previous value");
+            outlierPercent.Text="5";allowOutliers.IsChecked=true;window.UpdateLayout();
+            bassLimit.Text = "1"; thd80.IsChecked = true; window.UpdateLayout();
+            foreach (var scroll in Visuals<ScrollViewer>(window)) scroll.ScrollToBottom(); window.UpdateLayout();
+            Render(window, Path.Combine(output, "config-criteria.png"));
             var tabs = Private<TabControl>(window, "_tabs"); Check(tabs.Items.Count == 2, "Redundant devices tab remains"); tabs.SelectedIndex = 0; window.UpdateLayout();
             var sections = Visuals<TabControl>(window).First(t => t != tabs); sections.SelectedIndex = 1; window.UpdateLayout();
+            sections.SelectedIndex=sections.Items.Count-1; window.UpdateLayout();
+            var music=Visuals<TextBox>(window).Single(t=>t.ToolTip?.ToString()=="BLE MUSIC cố định (%)");
+            var windows=Visuals<TextBox>(window).Single(t=>t.ToolTip?.ToString()=="Windows phát chung model (%)");
+            music.Text="50"; windows.Text="75";
+            var volumeModel=(ModelConfig)Invoke(window,"ReadEditorModel");
+            Check(volumeModel.testItems.InOut.TestVolume is {BleMusicPercent:50,WindowsPlaybackPercent:75},"Shared model volume did not save");
+            music.Text="101"; Reject(()=>Invoke(window,"ReadEditorModel"),"Out of range BLE volume saved"); music.Text="50";
+            Render(window,Path.Combine(output,"config-model-volume.png"));
+            Check(!sections.Items.OfType<TabItem>().Any(t=>t.Header.ToString()=="Auto Test model"),"Empty Auto Test model tab remains after moving Bluetooth cleanup");
+            sections.SelectedItem=sections.Items.OfType<TabItem>().Single(t=>t.Header.ToString()=="Bật/tắt kiểm tra");window.UpdateLayout();
+            var removeBluetooth=Visuals<CheckBox>(window).Single(c=>c.Content.ToString()!.StartsWith("Bluetooth auto remove"));
+            Check(removeBluetooth.IsChecked==false,"Model Bluetooth cleanup must default off"); removeBluetooth.IsChecked=true;
+            var btModel=(ModelConfig)Invoke(window,"ReadEditorModel");
+            Check(btModel.testItems.InOut.BluetoothAutoRemove && !model.testItems.InOut.BluetoothAutoRemove,"Bluetooth removal must save in the detached model draft");
+            Check(ModelConfigEditorWindow.ParseModel(btModel.model,JsonSerializer.Serialize(btModel)).testItems.InOut.BluetoothAutoRemove,"Model Bluetooth flag lost on JSON/server round trip");
+            Render(window,Path.Combine(output,"model-bluetooth-auto-remove.png"));
+            sections.SelectedIndex=1; window.UpdateLayout();
             var effect = Visuals<CheckBox>(window).Single(c => c.Content.ToString()!.StartsWith("TestEffect")); effect.IsChecked = true;
             var air = Visuals<CheckBox>(window).Single(c => c.Content.ToString()!.StartsWith("TestAirLeak")); air.IsChecked = true;
             Check(!model.testItems.InOut.Tests[0].TestEffect && !model.testItems.InOut.Tests[0].TestAirLeak, "Form mutated original before Save");
             Render(window, Path.Combine(output, "config-test-switches.png"));
             tabs.SelectedIndex = 1; window.UpdateLayout();
             var json = Private<TextBox>(window, "_json");
+            Check(json.IsReadOnly,"JSON is editable before Edit");
+            Render(window,Path.Combine(output,"json-readonly-edit.png"));
+            Visuals<Button>(window).Single(b=>b.Name=="EditJson").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(!json.IsReadOnly,"Edit did not unlock JSON");
             Check(json.Text.Contains("\"TestEffect\": true") && json.Text.Contains("customTest"), "Form-to-JSON lost flags or custom field");
             json.Text = json.Text.Replace("\"TestLooseParticle\": false", "\"TestLooseParticle\": true");
             tabs.SelectedIndex = 0; window.UpdateLayout();
@@ -201,12 +376,12 @@ internal static class Program
             int localSaves = 0, publishes = 0;
             window.SaveModel = _ => localSaves++;
             window.PublishModel = candidate => { publishes++; return Task.FromResult(candidate); };
-            var publish = Visuals<Button>(window).Single(b => b.Name == "PublishModel");
-            publish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Check(localSaves == 1 && publishes == 1 && publish.IsEnabled, "Publish button did not save, publish, and restore controls");
+            Check(!Visuals<Button>(window).Any(b=>b.Name=="PublishModel"),"Separate server publish button remains");
+            ((Task)window.GetType().GetMethod("SaveAndSynchronizeAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,new object[]{false})!).GetAwaiter().GetResult();
+            Check(localSaves==1 && publishes==1 && json.IsReadOnly,"Save did not save/publish and lock JSON");
             window.PublishModel = _ => Task.FromException<ModelConfig>(new IOException("Offline test"));
-            publish.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Check(localSaves == 2 && publish.IsEnabled && Private<TextBlock>(window, "_error").Text.Contains("Offline test"), "Publish failure lost local save or froze controls");
+            ((Task)window.GetType().GetMethod("SaveAndSynchronizeAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(window,new object[]{false})!).GetAwaiter().GetResult();
+            Check(localSaves==2 && tabs.IsEnabled && Private<TextBlock>(window,"_error").Text.Contains("Offline test"),"Sync failure lost local save or froze controls");
         }
         finally { window.Close(); }
         Check(!model.testItems.InOut.Tests[0].TestEffect, "Cancel leaked draft edits");
@@ -280,7 +455,7 @@ internal static class Program
     {
         // Exercise the same dictionary used by the BLE mixer without opening a BLE connection.
         var window = new Window { Width = 480, Height = 220, Background = Brushes.Black };
-        window.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/SoncaAudioInspector;component/ConfigTheme.xaml", UriKind.Relative) });
+        window.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/SoncaAudioInspector;component/src/Themes/ConfigTheme.xaml", UriKind.Relative) });
         var panel = new StackPanel { Margin = new Thickness(20) }; window.Content = panel;
         var button = new Button { Content = "Kết nối", Background = Brushes.Green, Foreground = Brushes.Red };
         var combo = new ComboBox { ItemsSource = new[] { "Loa Sonca", "Thiết bị kiểm tra" }, SelectedIndex = 0, Margin = new Thickness(0, 10, 0, 0) };

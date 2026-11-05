@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using Windows.Devices.Bluetooth;
@@ -8,6 +8,34 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 
 internal static class BleConnectionChecks
 {
+    private static void Require(bool ok,string message){if(!ok)throw new Exception(message);}
+    public static async Task ReadinessAsync(string output, ulong address)
+    {
+        Directory.CreateDirectory(output);
+        using var manager = new SoncaAudioInspector.SoncaBleManager();
+        Task<bool>? concurrent = null;
+        bool? returnedBeforeSnapshot = null;
+        int registersAtInfo = -1;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        manager.LogMessage += message =>
+        {
+            if (!message.StartsWith("[BLE] INFO được loa xác nhận:") || concurrent != null) return;
+            registersAtInfo = manager.MixerState.Count;
+            concurrent = manager.EnsureConnectedAsync(address, timeout.Token, expectedModelId: 1075);
+            returnedBeforeSnapshot = concurrent.IsCompleted;
+        };
+        bool ready = await manager.EnsureConnectedAsync(address, timeout.Token, userInitiated: true, expectedModelId: 1075);
+        bool secondReady = concurrent != null && await concurrent;
+        File.WriteAllText(Path.Combine(output,"readiness.json"),JsonSerializer.Serialize(new {
+            address=manager.ConnectedBluetoothAddress?.ToString("X12"),manager.FirmwareIdentity,
+            ready,secondReady,returnedBeforeSnapshot,registersAtInfo,finalRegisters=manager.MixerState.Count,
+            noAudioOrParameterWrites=true
+        },new JsonSerializerOptions{WriteIndented=true}));
+        Require(ready && secondReady && manager.ConnectedBluetoothAddress == address && manager.MixerState.Count >= 200,
+            "Connection did not finish with a complete mixer snapshot");
+        Require(returnedBeforeSnapshot == false,"Concurrent BLE waiter returned at INFO before the initial mixer snapshot");
+        Console.WriteLine("PASS real concurrent BLE readiness: INFO waiter waited for the first mixer snapshot; no audio/parameter writes.");
+    }
     public static void Logic()
     {
         Protocol();
@@ -52,6 +80,19 @@ internal static class BleConnectionChecks
         var ack = Convert.FromHexString("000302012D");
         if (decoder.Push(ack.Concat(config).Concat(ack).ToArray()).Count != 3) throw new Exception("Coalesced frames failed.");
         if (!SoncaAudioInspector.SoncaBleProtocol.BuildReadMixerPacket().AsSpan().SequenceEqual(Convert.FromHexString("028002046209000199"))) throw new Exception("GET config wire packet mismatch.");
+        var name=System.Text.Encoding.ASCII.GetBytes("SCA_MAIN48_C360.C360\0");
+        var version=System.Text.Encoding.ASCII.GetBytes(" VER A:1.1.5, C:1.6.7-AT 2026_09_30:18:08:13\n");
+        var identity=SoncaAudioInspector.SoncaBuildIdentity.Firmware(new(SoncaAudioInspector.SoncaBleProtocol.CmdInfo,0,name.Concat(new byte[]{45,4,51}).Concat(version).ToArray()));
+        Require(identity=="SCA_MAIN48_C360.C360 · VER A:1.1.5, C:1.6.7-AT 2026_09_30:18:08:13","Firmware name/version were embellished or lost raw content");
+        Require(SoncaAudioInspector.SoncaBuildIdentity.Firmware(new(1,0,System.Text.Encoding.ASCII.GetBytes("SCA_OTHER.X\0")))=="SCA_OTHER.X","Missing version invented a model/version label");
+        var anotherInfo = new SoncaAudioInspector.SoncaBleReply(SoncaAudioInspector.SoncaBleProtocol.CmdInfo,0,System.Text.Encoding.ASCII.GetBytes("SCA_MAIN48_OTHER.BOARD\0"));
+        Require(!SoncaAudioInspector.SoncaBleMixerProfile.SupportsInfo(anotherInfo)
+            && SoncaAudioInspector.SoncaBleMixerProfile.SupportsRoutingInfo(anotherInfo),"Common Sonca routing must not require the C360-only mixer identity");
+        Require(!SoncaAudioInspector.SoncaBleMixerProfile.HasInputRoutingState(new Dictionary<ushort,ushort>{[0x6242]=0})
+            && !SoncaAudioInspector.SoncaBleMixerProfile.HasInputRoutingState(new Dictionary<ushort,ushort>{[0x6242]=15,[0x6254]=72})
+            && SoncaAudioInspector.SoncaBleMixerProfile.CanSelectInputSource(new Dictionary<ushort,ushort>{[0x6242]=4,[0x6254]=72},1)
+            && !SoncaAudioInspector.SoncaBleMixerProfile.CanSelectInputSource(new Dictionary<ushort,ushort>{[0x6242]=4,[0x6254]=72},2),
+            "Unreported/invalid/unsupported sources became writable on another board");
         var updates = new SoncaAudioInspector.SoncaBleReply(0x84, 0, new byte[] { 0x61, 0x02, 0x20, 0 });
         if (!SoncaAudioInspector.SoncaBleMixerProfile.TryReadParameterUpdate(updates, out var live) || live[0x6102] != 8192
             || SoncaAudioInspector.SoncaBleMixerProfile.TryReadParameterUpdate(updates with { Status = 1 }, out _))
@@ -95,6 +136,39 @@ internal static class BleConnectionChecks
         }
         Console.WriteLine("PASS firmware A/C/build identity and masked Mic FBX/Bass boost/Enhancer preserve all input flags.");
         Console.WriteLine("PASS captured C360 INFO model 1075 and source capabilities: BT/USB music/LINE IN/SD-TF; blocked unsupported ports/legacy address/flags write/invalid mode.");
+        CommonMixerControls();
+    }
+
+    private static void CommonMixerControls()
+    {
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Acoustic3-controls.json")));
+        var info = new SoncaAudioInspector.SoncaBleReply(1, 0, Convert.FromHexString(json.RootElement.GetProperty("infoPayloadHex").GetString()!));
+        var state = json.RootElement.GetProperty("parameters").EnumerateObject().ToDictionary(p => Convert.ToUInt16(p.Name, 16), p => p.Value.GetUInt16());
+        Require(!SoncaAudioInspector.SoncaBleMixerProfile.SupportsInfo(info)
+            && SoncaAudioInspector.SoncaBleMixerProfile.SupportsRoutingInfo(info)
+            && SoncaAudioInspector.SoncaBleMixerProfile.HasMixerControlState(state), "Recorded ACOUSTIC3 mixer is still tied to C360 identity");
+        foreach (ushort register in new ushort[] { 0x6447, 0x6448, 0x6449, 0x6404, 0x640A, 0x6468, 0x6400 })
+            Require(SoncaAudioInspector.SoncaBleMixerProfile.CanWriteReportedParameter(state, register, state[register]), "Recorded common-model control blocked: " + register.ToString("X4"));
+        Require(!SoncaAudioInspector.SoncaBleMixerProfile.SupportsRoutingInfo(info with { Status = 1 })
+            && !SoncaAudioInspector.SoncaBleMixerProfile.SupportsRoutingInfo(info with { Payload = "OTHER_DEVICE"u8.ToArray() })
+            && !SoncaAudioInspector.SoncaBleMixerProfile.HasMixerControlState(new Dictionary<ushort,ushort> { [0x6242] = 0, [0x6254] = 72 })
+            && !SoncaAudioInspector.SoncaBleMixerProfile.HasMixerControlState(new Dictionary<ushort,ushort> { [0x6400] = 65535, [0x6447] = 2 }), "Invalid/absent mixer controls were treated as supported");
+        Require(!SoncaAudioInspector.SoncaBleMixerProfile.CanWriteReportedParameter(new Dictionary<ushort,ushort>(), 0x6447, 1)
+            && !SoncaAudioInspector.SoncaBleMixerProfile.CanWriteReportedParameter(new Dictionary<ushort,ushort> { [0x6447] = 65535 }, 0x6447, 1)
+            && !SoncaAudioInspector.SoncaBleMixerProfile.CanWriteReportedParameter(state, 0x3141, 50)
+            && !SoncaAudioInspector.SoncaBleMixerProfile.CanWriteReportedParameter(state, 0x6400, 8193), "Unreported/invalid/guessed controls became writable");
+        foreach (var option in Enum.GetValues<SoncaAudioInspector.SoncaMixerOption>())
+            Require(!SoncaAudioInspector.SoncaBleMixerProfile.SupportsOption(65535, option), "Unsupported option sentinel was accepted");
+        Require(SoncaAudioInspector.SoncaBleMixerProfile.TryReadModelId(info.Payload, out ushort model) && model == 1071
+            && SoncaAudioInspector.SoncaBleMixerProfile.TryMuteRegister("Reverb", info.Payload, state, out ushort normal, out bool inverted)
+            && normal == 0x640A && inverted, "Recorded ACOUSTIC3 reverb mapping/inversion is wrong");
+        byte[] alternate = System.Text.Encoding.ASCII.GetBytes("SCA_OTHER.BOARD\0").Concat(new byte[] { 45, 7, 47 }).ToArray(); // 1839: Sonca mobile F1.o.O
+        var both = new Dictionary<ushort,ushort> { [0x640A] = 1, [0x644A] = 0 };
+        Require(SoncaAudioInspector.SoncaBleMixerProfile.TryMuteRegister("Reverb", alternate, both, out ushort alt, out _) && alt == 0x644A
+            && !SoncaAudioInspector.SoncaBleMixerProfile.TryMuteRegister("Reverb", Array.Empty<byte>(), both, out _, out _)
+            && SoncaAudioInspector.SoncaBleMixerProfile.TryMuteRegister("Reverb", Array.Empty<byte>(), new Dictionary<ushort,ushort> { [0x644A] = 1 }, out alt, out _) && alt == 0x644A,
+            "Alternate/ambiguous reverb schema selected the wrong register");
+        Console.WriteLine("PASS captured ACOUSTIC3 common mixer, per-register bounds, missing/sentinel rejection, alternate firmware reverb mapping and INFO validation.");
     }
 
     public static async Task ConnectControlAsync(bool exerciseControls = false)
@@ -163,6 +237,8 @@ internal static class BleConnectionChecks
             var devices = await DeviceInformation.FindAllAsync(pair.Item2);
             foreach (var info in devices)
             {
+                try
+                {
                 if (pair.Item1 == "classic-connected")
                 {
                     using var device = await BluetoothDevice.FromIdAsync(info.Id);
@@ -170,6 +246,8 @@ internal static class BleConnectionChecks
                         properties = device?.DeviceInformation.Properties.Where(p => p.Key.Contains("Container")).ToDictionary(p => p.Key, p => p.Value?.ToString()) });
                 }
                 else Write(new { stage = pair.Item1, info.Name, info.Pairing.IsPaired });
+                }
+                catch (ArgumentException ex) { Write(new { stage = pair.Item1, info.Name, error = ex.Message }); }
             }
         }
         var adverts = new ConcurrentDictionary<ulong, (string Name, short Rssi, string[] Services, string Type)>();

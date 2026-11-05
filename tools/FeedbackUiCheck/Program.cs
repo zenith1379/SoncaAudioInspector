@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Windows;
@@ -12,6 +12,34 @@ internal static class Program
     static void Main(string[] args)
     {
         string directory = Path.GetFullPath(args[0]);
+        if (args.Contains("--brief-phase=P6"))
+        {
+            // P6 adds no app UI. Decode the ALC artifact before any App startup.
+            try
+            {
+                string output = Path.GetFullPath(args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "p6-ui-checks"));
+                string source = Path.GetFullPath(args.FirstOrDefault(a => a.StartsWith("--p6-output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "..", "..", "checks", "alc-P6"));
+                string png = Path.Combine(source, "io001-gate-vs-io003-comparison.png");
+                using var stream = new FileStream(png, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames.Single();
+                if (frame.PixelWidth < 900 || frame.PixelHeight < 500 || stream.Length == 0) throw new InvalidDataException("P6 PNG dimensions/size invalid.");
+                var pixels = new byte[frame.PixelHeight * frame.PixelWidth * 4]; frame.CopyPixels(pixels, frame.PixelWidth * 4, 0);
+                if (pixels.Distinct().Count() < 16) throw new InvalidDataException("P6 PNG is blank.");
+                foreach (string name in new[] { "io001-gate-vs-io003-summary.csv", "io001-gate-vs-io003-curves.csv", "qualification-template.vi.md", "checks.txt" })
+                    if (!File.Exists(Path.Combine(source, name)) || new FileInfo(Path.Combine(source, name)).Length == 0) throw new InvalidDataException("P6 output missing: " + name);
+                string artifactRoot = source;
+                while (!File.Exists(Path.Combine(artifactRoot, "artifact.json")) && Path.GetDirectoryName(artifactRoot) is string parent) artifactRoot = parent;
+                if (!File.Exists(Path.Combine(artifactRoot, "artifact.json")) || !output.StartsWith(artifactRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("P6 UI output must be within the same artifact.");
+                Directory.CreateDirectory(output);
+                File.WriteAllText(Path.Combine(output, "P6-ui-check.txt"), $"PASS P6: decoded nonblank {frame.PixelWidth}x{frame.PixelHeight} PNG and required ALC outputs. No App/UI behavior changed.\r\n");
+                Console.WriteLine($"PASS P6 UI artifact check: {frame.PixelWidth}x{frame.PixelHeight}; no App instance created.");
+            }
+            catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
+            return;
+        }
+        if (args.Contains("--brief-phase=P1") || args.Contains("--brief-phase=P2") || args.Contains("--brief-phase=P3") || args.Contains("--brief-phase=P4") || args.Contains("--brief-phase=P5"))
+            System.Runtime.InteropServices.NativeLibrary.Load(Path.Combine(directory, "runtimes", "win-x64", "native", "libSkiaSharp.dll"));
         AssemblyLoadContext.Default.Resolving += (_, name) =>
         {
             string candidate = Path.Combine(directory, name.Name + ".dll");
@@ -20,16 +48,61 @@ internal static class Program
         var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(directory, "SoncaAudioInspector.dll"));
         var app = (Application)Activator.CreateInstance(assembly.GetType("SoncaAudioInspector.App")!)!;
         app.GetType().GetMethod("InitializeComponent")!.Invoke(app, null);
+        var startupUri = app.StartupUri;
         // A UI check may pump rendering but must not launch the app's splash/login
         // workflow or turn a dispatcher error into a modal warning that hides failure.
         typeof(Application).GetField("_startupUri", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(app, null);
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (args.Contains("--brief-phase=P1"))
+        {
+            string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1]
+                ?? (args.Length > 2 ? args[2] : Path.Combine(directory, "p1-ui-checks"));
+            BriefP1UiChecks.Run(assembly, Path.GetFullPath(output)); app.Shutdown(); return;
+        }
+        if (args.Contains("--brief-phase=P2"))
+        {
+            string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "p2-ui-checks");
+            BriefP2UiChecks.Run(assembly, Path.GetFullPath(output)); app.Shutdown(); return;
+        }
+        if (args.Contains("--brief-phase=P3"))
+        {
+            string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "p3-ui-checks");
+            string? screenshotDir = args.FirstOrDefault(a => a.StartsWith("--screenshot-dir="))?.Split('=', 2)[1];
+            BriefP3UiChecks.Run(assembly, Path.GetFullPath(output), screenshotDir != null ? Path.GetFullPath(screenshotDir) : null);
+            app.Shutdown(); return;
+        }
+        if (args.Contains("--brief-phase=P4"))
+        {
+            string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "p4-ui-checks");
+            string? screenshotDir = args.FirstOrDefault(a => a.StartsWith("--screenshot-dir="))?.Split('=', 2)[1];
+            BriefP4UiChecks.Run(assembly, Path.GetFullPath(output), screenshotDir != null ? Path.GetFullPath(screenshotDir) : null);
+            app.Shutdown(); return;
+        }
+        if (args.Contains("--brief-phase=P5"))
+        {
+            string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1] ?? Path.Combine(directory, "p5-ui-checks");
+            string? screenshotDir = args.FirstOrDefault(a => a.StartsWith("--screenshot-dir="))?.Split('=', 2)[1];
+            try { BriefP5UiChecks.Run(assembly, Path.GetFullPath(output), screenshotDir != null ? Path.GetFullPath(screenshotDir) : null); }
+            catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
+            app.Shutdown(); return;
+        }
+        if (args.Any(a => a.StartsWith("--brief-phase="))) throw new ArgumentException("Chỉ hỗ trợ --brief-phase=P1, P2, P3, P4, P5 hoặc P6.");
+        if (args.Length > 1 && args[1] == "--source-layout-ui")
+        { SourceLayoutUiChecks.Run(assembly, startupUri, Path.GetFullPath(args[2])); app.Shutdown(); return; }
+        if(args.Length>1 && args[1]=="--ble-bluetooth-audio-live")
+        {BleBluetoothAudioLiveChecks.Run(assembly,Path.GetFullPath(args[2]),Convert.ToUInt64(args[3],16));app.Shutdown();return;}
+        if(args.Length>1 && args[1]=="--ble-bluetooth-audio-ui")
+        {BleBluetoothAudioUiChecks.Run(assembly,Path.GetFullPath(args[2]));app.Shutdown();return;}
+        if(args.Length>1 && args[1]=="--ble-model-names-ui")
+        {BleModelNamesUiChecks.Run(assembly,Path.GetFullPath(args[2]));app.Shutdown();return;}
+        if(args.Length>1 && args[1]=="--response-db-labels")
+        {ResponseDbLabelsChecks.Run(assembly,Path.GetFullPath(args[2]));app.Shutdown();return;}
         if (args.Length > 1 && args[1] == "--impedance-ui")
         { ImpedanceUiChecks.Run(assembly, Path.GetFullPath(args[2])); app.Shutdown(); return; }
         if (args.Length > 1 && args[1] == "--c360-model-ui")
         {
-            try { C360ModelUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3]), args.Contains("--live"), args.Contains("--reference"), args.FirstOrDefault(a => a.StartsWith("--model-config="))?.Split('=',2)[1], args.FirstOrDefault(a => a.StartsWith("--test-id="))?.Split('=',2)[1], args.Contains("--run-button")); }
+            try { C360ModelUiChecks.Run(assembly, Path.GetFullPath(args[2]), Path.GetFullPath(args[3]), args.Contains("--live"), args.Contains("--reference"), args.FirstOrDefault(a => a.StartsWith("--model-config="))?.Split('=',2)[1], args.FirstOrDefault(a => a.StartsWith("--test-id="))?.Split('=',2)[1], args.Contains("--run-button"), args.FirstOrDefault(a=>a.StartsWith("--ble-address="))?.Split('=',2)[1], args.FirstOrDefault(a=>a.StartsWith("--reference-dir="))?.Split('=',2)[1],args.Contains("--allow-nonstandard-rate")); }
             finally
             {
                 var manager = assembly.GetType("SoncaAudioInspector.SoncaBleManager")!.GetProperty("Instance")!.GetValue(null)!;

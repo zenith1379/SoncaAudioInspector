@@ -9,8 +9,10 @@ using SoncaAudioInspector;
 string configPath = Path.GetFullPath(args[0]), output = Path.GetFullPath(args[1]);
 Directory.CreateDirectory(output);
 var config = JsonSerializer.Deserialize<CheckingConfig>(File.ReadAllText(configPath))!;
-C360ModelDefinition.EnsureSeed(config);
-var candidate = config.models.First(m => C360ModelDefinition.Matches(m.testItems?.InOut));
+string? modelName=args.FirstOrDefault(a=>a.StartsWith("--model="))?.Split('=',2)[1];
+if(modelName==null) C360ModelDefinition.EnsureSeed(config);
+var candidate = modelName==null ? config.models.First(m => m.testItems?.InOut?.AutomationProfile==C360ModelDefinition.Profile)
+    : config.models.Single(m=>string.Equals(m.model,modelName,StringComparison.OrdinalIgnoreCase));
 candidate.AudioConfigUpdatedUtc = DateTimeOffset.UtcNow;
 candidate = ModelConfigEditorWindow.ParseModel(candidate.model, JsonSerializer.Serialize(candidate, ModelConfigEditorWindow.JsonOptions));
 var payload = JsonSerializer.SerializeToElement(candidate, ModelConfigEditorWindow.JsonOptions);
@@ -21,7 +23,7 @@ using var client = new HttpClient(new HttpClientHandler { UseCookies = false }) 
 client.DefaultRequestHeaders.Add("Origin", baseUrl);
 var remembered = ServerEngine.GetRememberedLogin() ?? throw new InvalidOperationException("No remembered account available for configuration sync.");
 using var login = await client.PostAsJsonAsync("api/auth/login", new { email = remembered.Account, password = remembered.Password,
-    deviceId = Guid.NewGuid().ToString(), deviceName = "Sonca C360 model synchronization" });
+    deviceId = Guid.NewGuid().ToString(), deviceName = "Sonca audio model synchronization" });
 if (!login.IsSuccessStatusCode) throw new InvalidOperationException("Saved-account login HTTP " + (int)login.StatusCode);
 using var credentials = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
 var auth = credentials.RootElement.GetProperty("data");

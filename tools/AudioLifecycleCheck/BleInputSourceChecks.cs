@@ -63,7 +63,8 @@ internal static class BleInputSourceChecks
                 finally { if (!await manager.SetOptionAsync(option, initial)) throw new Exception("Option restoration failed: " + option); }
             }
             var diff = baseline.Where(p => manager.MixerState.GetValueOrDefault(p.Key) != p.Value).ToDictionary(p => p.Key.ToString("X4"), p => new { before = p.Value, after = manager.MixerState.GetValueOrDefault(p.Key) });
-            File.WriteAllText(Path.Combine(output, "options.json"), JsonSerializer.Serialize(new { manager.FirmwareIdentity, changes, diff }, new JsonSerializerOptions { WriteIndented = true }));
+            if(manager.FirmwareIdentity!=SoncaBuildIdentity.Firmware(new(SoncaBleProtocol.CmdInfo,0,manager.FirmwareInfoPayload)))throw new Exception("Firmware label differs from raw INFO");
+            File.WriteAllText(Path.Combine(output, "options.json"), JsonSerializer.Serialize(new { manager.FirmwareIdentity, infoPayloadHex=Convert.ToHexString(manager.FirmwareInfoPayload), changes, diff }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine("PASS options and restoration diff=" + diff.Count); if (c360SetupPath == null) return;
         }
         if (c360SetupPath != null)

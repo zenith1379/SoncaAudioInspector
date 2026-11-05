@@ -51,3 +51,8 @@ FastTrackPro_x64 Driver/
 save standards/
 codex-session-*.md
 tools/**/dist/
+local-data/
+# Timestamped build/report artifacts stay local (see ARTIFACTS.md)
+artifacts/
+*_wpftmp.csproj
+checking_config.json.bak

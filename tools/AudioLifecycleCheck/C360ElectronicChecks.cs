@@ -14,9 +14,24 @@ internal static class C360ElectronicChecks
         Check(bench.Restored && bench.Stops >= 4, "Completion restoration");
         Check(bench.Writes.All(p => p.Key != SoncaBleMixerProfile.MasterVolume && p.Key != SoncaBleMixerProfile.MusicVolume), "Unrelated gain changed");
 
+        var volumeTest = new TestConfig { ModelVolume=new ModelTestVolume{BleMasterPercent=100,BleMusicPercent=50,BleMicPercent=50} };
+        bench=new Bench();
+        await suite.RunAsync(bench,Setup with {TestConfiguration=volumeTest});
+        Check(bench.Restored && bench.Stages.Count==4,"Matching model volume blocked normal isolated stages");
+        volumeTest.ModelVolume.BleMusicPercent=60; bench=new Bench();
+        await ExpectFailure(()=>suite.RunAsync(bench,Setup with {TestConfiguration=volumeTest}));
+        Check(bench.Writes.Count==0 && bench.Stages.Count==0,"Wrong model volume wrote state or emitted audio");
+
         bench = new Bench { NoSignal = true };
         results = await suite.RunAsync(bench, Setup);
         Check(results.Count == 4 && results.All(r => r.Status == "NO_SIGNAL") && bench.Restored, "Missing capture on one input hid other inputs or failed restoration");
+        bench = new Bench { AllowModel = true, BluetoothUnavailable = true };
+        results = await suite.RunAsync(bench, Setup, stages: [C360ElectronicStage.LineIn, C360ElectronicStage.Bluetooth, C360ElectronicStage.UsbA]);
+        Check(results.Select(r => r.Status).SequenceEqual(new[] { "PASS", "NO_SIGNAL", "PASS" }) && bench.Restored,
+            "Unavailable Bluetooth hid completed/remaining stages or failed restoration");
+        bench = new Bench { CaptureFailure = true };
+        await ExpectFailure(() => suite.RunAsync(bench, Setup));
+        Check(bench.Restored && bench.Stages.Count == 1, "Unexpected capture/control failure was converted into missing Bluetooth audio");
         bench = new Bench { FailWrite = true };
         await ExpectFailure(() => suite.RunAsync(bench, Setup));
         Check(bench.Restored && bench.Stages.Count == 0, "Applied write with lost ACK not restored");
@@ -38,6 +53,7 @@ internal static class C360ElectronicChecks
         Check(bench.Stages.SequenceEqual(new[] { C360ElectronicStage.LineIn, C360ElectronicStage.MicEffects }) && bench.Restored,
             "Disabled/reordered stages or restored MIC gain failed");
         await CheckModel(suite);
+        await C360RunPolicyChecks.Run();
         await CheckConnectionWaiters();
         var separate = Setup with { LinePlaybackId = "line-card", LineLevelDbFs = -30, UsbLevelDbFs = -18 };
         separate.Validate();
@@ -69,12 +85,13 @@ internal static class C360ElectronicChecks
     {
         var all = new CheckingConfig();
         Check(C360ModelDefinition.EnsureSeed(all) && all.models.Count == 1, "Model not seeded");
-        Check(all.models[0].testItems.InOut.Tests.Where(t => t.IsEnabled).Select(t => t.id).SequenceEqual(new[] { "IO001", "IO002", "IO003", "IO004" }), "MIC FBX must be IO002; acoustic draft stays disabled");
-        var old = C360ModelDefinition.Create(); old.testItems.InOut.AutomationProfileVersion = 2;
+        Check(all.models[0].testItems.InOut.Tests.Select(t => t.id).SequenceEqual(Enumerable.Range(1,7).Select(i=>$"IO{i:000}")), "IDs must ascend in configured order including the disabled draft");
+        var old = C360ModelDefinition.Create();
+        old.testItems.InOut.Tests.RemoveAll(t => t.SpeakerStage is "MicDry" or "Bluetooth"); old.testItems.InOut.AutomationProfileVersion = 2;
         old.testItems.InOut.Tests[1].id = "IO004"; old.testItems.InOut.Tests[2].id = "IO002"; old.testItems.InOut.Tests[3].id = "IO003";
         old.testItems.InOut.Tests[2].ThdLimit = .27;
         Check(C360ModelDefinition.EnsureSeed(new CheckingConfig { models = new() { old } })
-            && old.testItems.InOut.Tests.Where(t => t.IsEnabled).Select(t => t.id).SequenceEqual(new[] { "IO001", "IO002", "IO003", "IO004" }) && old.testItems.InOut.Tests[2].ThdLimit == .27,
+            && old.testItems.InOut.Tests.Where(t => t.IsEnabled).Select(t => t.id).SequenceEqual(new[] { "IO001", "IO002", "IO003", "IO004", "IO005", "IO007" }) && old.testItems.InOut.Tests.Single(t => t.SpeakerStage == "LineIn").ThdLimit == .27,
             "ID migration lost configuration");
         var levels = new TestConfig { WindowsPlaybackPercent = 100, WindowsRecordingPercent = 50 }; levels.ValidateWindowsLevels();
         foreach (string text in new[] { "{\"Playback Level\":-12,\"Playback Level dBFS\":-6}", "{\"Playback Level dBFS\":-6,\"Playback Level\":-12}" })
@@ -95,7 +112,7 @@ internal static class C360ElectronicChecks
         var line = config.Tests.Single(t => t.SpeakerStage == "LineIn");
         config.Tests[0].PlaybackLevelDbfs = -18; line.PlaybackLevelDbfs = -27; line.ThdLimit = .23;
         var plan = C360ModelPlan.Create(config, endpoints, Setup);
-        Check(plan.Setup.UsbPlaybackId == "" && plan.Stages.Length == 4, "Missing USB A blocked other stages or reused the capture endpoint");
+        Check(plan.Setup.UsbPlaybackId == "" && plan.Stages.Length == 6, "Missing USB A blocked other stages or reused the capture endpoint");
         var usbPlan = C360ModelPlan.Create(config, endpoints.Append(new C360ModelEndpoint("usb-music", "Speakers (CS3600 MUSIC)", false)).ToArray(), Setup);
         Check(usbPlan.Setup.UsbPlaybackId == "usb-music" && usbPlan.Setup.LineOutCaptureId == "line-out", "USB A render/capture roles were confused");
         int polls = 0;
@@ -113,14 +130,15 @@ internal static class C360ElectronicChecks
         var migration = C360ModelDefinition.Create(); migration.testItems.InOut.AutomationProfileVersion = 3;
         migration.testItems.InOut.Devices.Input["USB A"] = "Speakers (C360 usb audio)"; migration.testItems.InOut.Tests[0].id = "CUSTOM";
         C360ModelDefinition.EnsureSeed(new CheckingConfig { models = new() { migration } });
-        Check(migration.testItems.InOut.Devices.Input["USB A"] == "CS3600 MUSIC" && migration.testItems.InOut.Tests[0].id == "CUSTOM", "USB migration lost custom IDs");
+        Check(migration.testItems.InOut.Devices.Input["USB A"] == "CS3600 MUSIC" && migration.testItems.InOut.Tests[0].id == "IO001"
+            && migration.testItems.InOut.Tests[0].ReferenceTestId == "CUSTOM", "ID migration lost the original reference identity");
         line.PlaybackLevelDbfs = -6;
         var bench = new Bench { AllowModel = true };
         await suite.RunAsync(plan.Bind(bench), plan.Setup, stages: plan.Stages);
-        Check(bench.CapturedSetups[0].LevelDbFs == -18 && bench.CapturedSetups[2].LevelDbFs == -27 && bench.CapturedSetups[2].ThdLimitPercent == .23,
+        Check(bench.CapturedSetups[0].LevelDbFs == -18 && bench.CapturedSetups[3].LevelDbFs == -27 && bench.CapturedSetups[3].ThdLimitPercent == .23,
             "Per-test levels/limit not frozen/applied");
         config.Tests.Single(t => t.SpeakerStage == "UsbA").Enable = false;
-        Check(C360ModelPlan.Create(config, endpoints, Setup).Stages.Length == 3, "Disabled test still selected");
+        Check(C360ModelPlan.Create(config, endpoints, Setup).Stages.Length == 5, "Disabled test still selected");
         var shiftTest = config.Tests.Single(t => t.SpeakerStage == "MicFrequencyShift");
         config.Devices.Input["FBX OUT"] = "Separate FBX output"; shiftTest.PlaybackOut = "FBX OUT";
         var separatePlan = C360ModelPlan.Create(config, endpoints.Append(new C360ModelEndpoint("fbx-card", "Separate FBX output", false)).ToArray(), Setup);
@@ -147,6 +165,8 @@ internal static class C360ElectronicChecks
         {
             [SoncaBleMixerProfile.InputCapabilities] = 73,
             [SoncaBleMixerProfile.InputSource] = 4,
+            [SoncaBleMixerProfile.MasterVolume] = 8160,
+            [SoncaBleMixerProfile.MusicVolume] = 4064,
             [SoncaBleMixerProfile.MicVolume] = 4097,
             [SoncaBleMixerProfile.MicMute] = 1,
             [SoncaBleMixerProfile.MusicMute] = 0,
@@ -160,6 +180,7 @@ internal static class C360ElectronicChecks
         public bool NoSignal, FailWrite, BadReadback, HoldCapture, AllowModel;
         public readonly List<C360ElectronicSetup> CapturedSetups = new();
         public int Stops;
+        public bool BluetoothUnavailable, CaptureFailure;
         public bool Restored => initial.All(p => state[p.Key] == p.Value);
         public readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task<IReadOnlyDictionary<ushort, ushort>> ReadAsync(CancellationToken token)
@@ -182,16 +203,19 @@ internal static class C360ElectronicChecks
             Check(setup.LineOutCaptureId == "line-out" && (AllowModel || setup.PlaybackId(stage) == (stage == C360ElectronicStage.UsbA ? "usb" : "analog")), "Endpoint changed");
             Check(state[SoncaBleMixerProfile.MasterMute] == 0 && state[SoncaBleMixerProfile.LiveMute] == 0, "Capture muted");
             Check((state[SoncaBleMixerProfile.InputCapabilities] & 1) == 0, "FBX not disabled before the next test");
-            if (stage is C360ElectronicStage.MicEffects or C360ElectronicStage.MicFrequencyShift)
+            if (stage is C360ElectronicStage.MicEffects or C360ElectronicStage.MicFrequencyShift or C360ElectronicStage.MicDry)
             {
                 Check(state[SoncaBleMixerProfile.MicVolume] == 4097, "MIC level was not restored before reordered MIC stage");
                 int effects = stage == C360ElectronicStage.MicEffects ? 1 : 0;
                 Check(state[SoncaBleMixerProfile.MicMute] == 0 && state[SoncaBleMixerProfile.MusicMute] == 1 && state[SoncaBleMixerProfile.EchoEnable] == effects && state[SoncaBleMixerProfile.ReverbEnable] == effects, "MIC stage isolation wrong");
             }
             else
-                Check(state[SoncaBleMixerProfile.MicMute] == 1 && state[SoncaBleMixerProfile.MicVolume] == 0 && state[SoncaBleMixerProfile.MusicMute] == 0 && state[SoncaBleMixerProfile.EchoEnable] == 0 && state[SoncaBleMixerProfile.ReverbEnable] == 0 && state[SoncaBleMixerProfile.InputSource] == (stage is C360ElectronicStage.LineIn or C360ElectronicStage.AcousticMic ? 4 : 1), "Music isolation wrong");
+                Check(state[SoncaBleMixerProfile.MicMute] == 1 && state[SoncaBleMixerProfile.MicVolume] == 0 && state[SoncaBleMixerProfile.MusicMute] == 0 && state[SoncaBleMixerProfile.EchoEnable] == 0 && state[SoncaBleMixerProfile.ReverbEnable] == 0 && state[SoncaBleMixerProfile.InputSource] == (stage == C360ElectronicStage.Bluetooth ? 0 : stage is C360ElectronicStage.LineIn or C360ElectronicStage.AcousticMic ? 4 : 1), "Music isolation wrong");
             Entered.TrySetResult();
             if (HoldCapture) await Task.Delay(Timeout.Infinite, token);
+            if (CaptureFailure) throw new InvalidOperationException("fixture: control/acquisition failure");
+            if (BluetoothUnavailable && stage == C360ElectronicStage.Bluetooth)
+                throw new BluetoothPlaybackUnavailableException("fixture: Windows pairing failed; no audio endpoint");
             return new(stage, NoSignal ? "NO_SIGNAL" : "PASS", "fixture");
         }
         public void StopAudio() => Stops++;

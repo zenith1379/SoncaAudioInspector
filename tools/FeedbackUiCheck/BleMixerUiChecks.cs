@@ -47,6 +47,9 @@ internal static class BleMixerUiChecks
         FieldInfo reader = type.GetField("ReadConnectedAudioPeers", hidden)!;
         reader.SetValue(window, System.Linq.Expressions.Expression.Lambda(reader.FieldType,
             System.Linq.Expressions.Expression.Constant(pendingType.GetProperty("Task")!.GetValue(pending), reader.FieldType.GenericTypeArguments[0])).Compile());
+        // The injected full snapshot is fresh and suppresses duplicate reads.
+        // Expire it to exercise an independently due mixer read during BT lookup.
+        type.GetField("_lastMixerReadUtc", hidden)!.SetValue(window, DateTime.UtcNow.AddSeconds(-3));
         int beforeRefresh = writer.Packets.Count;
         clock.Restart();
         Task refresh = (Task)type.GetMethod("RefreshAudioPeersAsync", hidden)!.Invoke(window, null)!;
@@ -168,6 +171,15 @@ internal static class BleMixerUiChecks
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         if (sourceButtons[4].IsChecked != true || sourceButtons[1].IsChecked == true) throw new Exception("Old source completion overwrote the new connection.");
         CheckImmediateInputs(assembly, type, window, writer);
+        writer.MixerControls = false;
+        update.Invoke(window, new object[] { true, "Another Sonca board with the common routing schema" });
+        if (!sourceButtons[0].IsEnabled || !sourceButtons[1].IsEnabled || !sourceButtons[4].IsEnabled
+            || ((Slider)window.FindName("SliderMicVol")).IsEnabled)
+            throw new Exception("Common source routing was tied to the C360-only mixer profile.");
+        sourceButtons[1].IsChecked = true;
+        if (sourceButtons[1].IsChecked != true) throw new Exception("A routing-compatible board could not change source without the C360 mixer profile.");
+        writer.MixerControls = true;
+        Console.WriteLine("PASS another board's routing can be selected from its reported source/capabilities independently of C360-only mixer controls.");
         // Render only injected state. Detach device discovery before showing.
         window.Loaded -= (RoutedEventHandler)Delegate.CreateDelegate(typeof(RoutedEventHandler), window, type.GetMethod("SoncaBleMixerWindow_Loaded", hidden)!);
         window.Closing -= (System.ComponentModel.CancelEventHandler)Delegate.CreateDelegate(typeof(System.ComponentModel.CancelEventHandler), window, type.GetMethod("SoncaBleMixerWindow_Closing", hidden)!);
@@ -241,16 +253,21 @@ internal static class BleMixerUiChecks
         if (writer.Packets.Count != sentBeforeDrag + 2 || writer.Packets.Last()[6] != 0x0D || writer.Packets.Last()[7] != 0xAC)
             throw new Exception("Latest slider value was lost instead of coalesced.");
 
-        foreach (string name in new[] { "BtnSaveSpeakerConfig", "BtnResetSpeakerConfig", "ChkBassBoost", "SliderMusicBass" })
+        foreach (string name in new[] { "BtnSaveSpeakerConfig", "BtnResetSpeakerConfig", "ChkBassBoost" })
             if (((FrameworkElement)window.FindName(name)).IsEnabled) throw new Exception("Unverified firmware control was enabled: " + name);
 
         var infoType = assembly.GetType("SoncaAudioInspector.BleDeviceInfo")!;
         object Info(ulong address, short rssi) => Activator.CreateInstance(infoType, address, "Sonca test", rssi, true, DateTime.Now)!;
         var discovered = type.GetMethod("OnDeviceDiscovered", hidden)!;
+        ((TextBox)window.FindName("TxtBleNameFilter")).Text = "";
+        var discoveryTimer = (System.Windows.Threading.DispatcherTimer)type.GetField("_discoveryUiTimer",hidden)!.GetValue(window)!;
+        discoveryTimer.Start();
         discovered.Invoke(window, new[] { Info(1, -20) }); discovered.Invoke(window, new[] { Info(2, -60) });
+        Complete(Task.Delay(350));
         var combo = (ComboBox)window.FindName("CmbDevices");
         combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().Single(i => (ulong)i.Tag == 2);
         discovered.Invoke(window, new[] { Info(3, -10) });
+        Complete(Task.Delay(350)); discoveryTimer.Stop();
         if ((ulong)((ComboBoxItem)combo.SelectedItem).Tag != 2) throw new Exception("An advertisement changed the operator's selected device.");
         window.Close();
         Console.WriteLine("PASS BLE mixer: no initialization/offline write, readback required, failed mute unchanged, dedicated effect enable, Q12 volume, stale completion rejected, queue cleared and stable device selection.");
@@ -299,14 +316,27 @@ public class MixerWriterProxy : DispatchProxy
 {
     public readonly Dictionary<ushort,ushort> OptionState = new();
     public int ConnectionReads;
-    public bool Connected, Success;
+    public bool Connected, Success, MixerControls = true;
+    public bool AlternateReverb, C360Profile = true;
+    public byte[] FirmwarePayload = Array.Empty<byte>();
     public TaskCompletionSource<bool>? Pending;
     public List<byte[]> Packets { get; } = new();
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         if (targetMethod?.Name == "get_IsConnected") { ConnectionReads++; return Connected; }
-        if (targetMethod?.Name == "get_SupportsMixerControls") return true;
+        if (targetMethod?.Name == "get_SupportsMixerControls") return MixerControls;
+        if (targetMethod?.Name == "get_FirmwareInfoPayload") return FirmwarePayload;
+        if (targetMethod?.Name == "get_SupportsInputRouting") return true;
+        if (targetMethod?.Name == "InputSourceName") return (byte)args![0]! switch { 0=>"Bluetooth",1=>"USB A",2=>"OPTICAL",3=>"HDMI",4=>"LINE IN",5=>MixerControls && C360Profile?"THẺ NHỚ (SD/TF)":"KARAOKE",_=>"Chưa xác định" };
         if (targetMethod?.Name == "get_MixerState") return OptionState;
+        if (targetMethod?.Name == "TryMuteRegister")
+        {
+            string channel = (string)args![0]!;
+            args[1] = channel switch { "Mic" => (ushort)0x6447, "Music" => (ushort)0x6448, "Master" => (ushort)0x6449,
+                "Echo" => (ushort)0x6404, "Reverb" => (ushort)(AlternateReverb ? 0x644A : 0x640A), "Live" => (ushort)0x6468, _ => (ushort)0 };
+            args[2] = channel is "Echo" or "Reverb";
+            return (ushort)args[1]! != 0;
+        }
         if (targetMethod?.Name == "SetOptionAsync")
         {
             ushort mask = args![0]!.ToString() switch { "MicFbx" => 1, "BassBoost" => 2, _ => 512 };

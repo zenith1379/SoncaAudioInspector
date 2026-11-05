@@ -66,6 +66,17 @@ internal static class ImpulseEffectsChecks
         File.WriteAllText(Path.Combine(output, "effect-example.json"), JsonSerializer.Serialize(saved, new JsonSerializerOptions { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals }));
         File.WriteAllText(Path.Combine(output, "effect-config-example.json"), JsonSerializer.Serialize(settings.EffectsSettings, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine("PASS echo + reverb extracted from one deconvolved sweep, with UI fixture saved.");
+        foreach(int rate in new[]{44100,48000})
+        {
+            var shortSettings=settings with{SampleRate=rate,DurationSeconds=65536d/rate};
+            var shortSweep=StandardAcousticMeasurement.GenerateLogSweep(shortSettings);
+            var shortCapture=Convolve(shortSweep,Impulse(rate,true,true)).Select(v=>v*.4f).ToArray();
+            var shortResult=StandardAcousticMeasurement.AnalyzeLogSweep(shortSweep,shortCapture,shortSettings,measuredPreSweepNoiseFloorDbFs:-100);
+            Require(shortSweep.Length==65536 && shortResult.Validity!="INVALID"
+                && shortResult.ImpulseEffects is{IsValid:true,EchoDetected:true,ReverbDetected:true},
+                $"64K sweep did not retain echo/reverb at {rate} Hz");
+            Console.WriteLine($"PASS 64K generated sweep + full tail, {rate} Hz: echo/reverb recovered from synthetic convolution; not physical qualification.");
+        }
     }
 
     private static double[] Impulse(int rate, bool echo, bool reverb)

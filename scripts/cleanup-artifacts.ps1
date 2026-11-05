@@ -38,20 +38,28 @@ $rows = foreach ($item in $candidates) {
         $basis = 'manifest-createdUtc'
     }
     $bytes = ($files | Measure-Object Length -Sum).Sum
-    [pscustomobject]@{ path=$item.FullName; timestampUtc=$when.ToString('o'); basis=$basis; bytes=[long]$bytes; files=$files.Count; action=$(if ($when -lt $cutoff) {'delete'} else {'keep'}); deleted=$false }
+    [pscustomobject]@{ path=$item.FullName; timestampUtc=$when.ToString('o'); basis=$basis; bytes=[long]$bytes; files=$files.Count; action=$(if ($when -lt $cutoff) {'delete'} else {'keep'}); deleted=$false; error=$null }
 }
 # Save the complete concrete plan before any deletion.
 $rows | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $reportPath 'inventory.json') -Encoding utf8
 if ($Apply) {
     foreach ($row in $rows | Where-Object action -eq 'delete') {
         Assert-SafePath $row.path
-        Remove-Item -LiteralPath $row.path -Recurse -Force
-        $row.deleted = $true
+        try {
+            Remove-Item -LiteralPath $row.path -Recurse -Force
+            $row.deleted = $true
+        }
+        catch {
+            # A protected/locked old build must not prevent cleanup of the rest.
+            # Keep the failed path visible; never change its ACL or ownership.
+            $row.error = $_.Exception.Message
+        }
         $rows | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $reportPath 'inventory.json') -Encoding utf8
     }
 }
 $expired = @($rows | Where-Object action -eq 'delete')
 $summary = "Cutoff UTC: $($cutoff.ToString('o')); apply=$Apply; expired=$($expired.Count); kept=$(@($rows | Where-Object action -eq 'keep').Count); expired GiB=$([Math]::Round(($expired | Measure-Object bytes -Sum).Sum/1GB,3))"
+$summary += "; deleted=$(@($rows | Where-Object deleted).Count); failed=$(@($rows | Where-Object error).Count)"
 Add-Content -LiteralPath (Join-Path $reportPath 'ARTIFACT.md') -Value @('', $summary) -Encoding utf8
 Write-Output $summary
 Write-Output "Report: $reportPath"

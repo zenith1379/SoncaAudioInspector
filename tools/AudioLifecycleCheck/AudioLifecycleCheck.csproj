@@ -12,12 +12,16 @@
   <ItemGroup>
     <Compile Remove="obj\**\*.cs" />
     <Content Include="Fixtures\C360-config.hex" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\Acoustic3-controls.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fixtures\CaptureIntegrity\*.wav" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="..\..\Assets\app_icon.ico" Link="Assets\app_icon.ico" />
   </ItemGroup>
   <ItemGroup Condition="'$(AudioAssemblyPath)' != ''">
     <Reference Include="SoncaAudioInspector" HintPath="$(AudioAssemblyPath)" />
+    <Reference Include="MathNet.Numerics" HintPath="$([System.IO.Path]::GetDirectoryName('$(AudioAssemblyPath)'))\MathNet.Numerics.dll" />
+    <Reference Include="SkiaSharp" HintPath="$([System.IO.Path]::GetDirectoryName('$(AudioAssemblyPath)'))\SkiaSharp.dll" />
     <PackageReference Include="NAudio" Version="2.3.0" />
   </ItemGroup>
 </Project>

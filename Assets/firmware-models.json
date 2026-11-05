@@ -1,0 +1,491 @@
+{
+  "sourceFile": "model_profile.txt",
+  "sourceUrl": "http://data.soncamedia.com/firmware/smartbox/model_profile.txt",
+  "sourceSha256": "BB47C9B13C576A77A2D73476529A647AE104B91F72552F40CC5404EA6FBE1142",
+  "model": [
+    {
+      "model_id": 1,
+      "model_name": "KS360"
+    },
+    {
+      "model_id": 4,
+      "model_name": "MM8"
+    },
+    {
+      "model_id": 104,
+      "model_name": "M2_MM8OPT_4MIC"
+    },
+    {
+      "model_id": 105,
+      "model_name": "M2_MM8OPT_2MIC"
+    },
+    {
+      "model_id": 301,
+      "model_name": "KS360"
+    },
+    {
+      "model_id": 303,
+      "model_name": "KS362"
+    },
+    {
+      "model_id": 304,
+      "model_name": "M1_CW"
+    },
+    {
+      "model_id": 310,
+      "model_name": "B8675"
+    },
+    {
+      "model_id": 1794,
+      "model_name": "MI30S"
+    },
+    {
+      "model_id": 1856,
+      "model_name": "MI36"
+    },
+    {
+      "model_id": 1857,
+      "model_name": "FLAC 39"
+    },
+    {
+      "model_id": 1858,
+      "model_name": "FLAC 36 ULTIMATE"
+    },
+    {
+      "model_id": 1806,
+      "model_name": "KAWAII"
+    },
+    {
+      "model_id": 1795,
+      "model_name": "MI30S"
+    },
+    {
+      "model_id": 1797,
+      "model_name": "MI30E"
+    },
+    {
+      "model_id": 1854,
+      "model_name": "MI30X"
+    },
+    {
+      "model_id": 2977,
+      "model_name": "KS362D"
+    },
+    {
+      "model_id": 1025,
+      "model_name": "MI30U"
+    },
+    {
+      "model_id": 1026,
+      "model_name": "ACOUSTIC 3"
+    },
+    {
+      "model_id": 1153,
+      "model_name": "AURIS"
+    },
+    {
+      "model_id": 1154,
+      "model_name": "ACNET3"
+    },
+    {
+      "model_id": 1155,
+      "model_name": "HARMONY"
+    },
+    {
+      "model_id": 1058,
+      "model_name": "KBEATBOX_CHILL"
+    },
+    {
+      "model_id": 1075,
+      "model_name": "KBEATBOX"
+    },
+    {
+      "model_id": 1060,
+      "model_name": "D'AURIS 200"
+    },
+    {
+      "model_id": 1063,
+      "model_name": "D'AURIS 200 2G4"
+    },
+    {
+      "model_id": 1061,
+      "model_name": "D'AURIS 300"
+    },
+    {
+      "model_id": 1078,
+      "model_name": "D'AURIS 100"
+    },
+    {
+      "model_id": 1082,
+      "model_name": "ACOUSTIC X"
+    },
+    {
+      "model_id": 1079,
+      "model_name": "MAISON"
+    },
+    {
+      "model_id": 1080,
+      "model_name": "HARMONY 500"
+    },
+    {
+      "model_id": 1081,
+      "model_name": "D'AURIS 500 V27"
+    },
+    {
+      "model_id": 1064,
+      "model_name": "ACOUSTIC3 COMPACT"
+    },
+    {
+      "model_id": 1071,
+      "model_name": "ACOUSTIC 3"
+    },
+    {
+      "model_id": 1072,
+      "model_name": "HARMONY"
+    },
+    {
+      "model_id": 1073,
+      "model_name": "High Fidelity Pro"
+    },
+    {
+      "model_id": 1065,
+      "model_name": "D'AURIS 500"
+    },
+    {
+      "model_id": 1066,
+      "model_name": "D'AURIS"
+    },
+    {
+      "model_id": 1027,
+      "model_name": "MI30U Pro"
+    },
+    {
+      "model_id": 1152,
+      "model_name": "MiNet30UPro"
+    },
+    {
+      "model_id": 1030,
+      "model_name": "CS3600"
+    },
+    {
+      "model_id": 1069,
+      "model_name": "CB68neo"
+    },
+    {
+      "model_id": 1031,
+      "model_name": "CS3600 Pro"
+    },
+    {
+      "model_id": 1157,
+      "model_name": "CS3800 Pro"
+    },
+    {
+      "model_id": 1032,
+      "model_name": "HINET 3600"
+    },
+    {
+      "model_id": 1033,
+      "model_name": "High Fidelity"
+    },
+    {
+      "model_id": 1034,
+      "model_name": "High Fidelity Pro"
+    },
+    {
+      "model_id": 1035,
+      "model_name": "HINET450"
+    },
+    {
+      "model_id": 1036,
+      "model_name": "HI450"
+    },
+    {
+      "model_id": 1037,
+      "model_name": "ePOP 100"
+    },
+    {
+      "model_id": 1038,
+      "model_name": "CS122"
+    },
+    {
+      "model_id": 1039,
+      "model_name": "AUCUS AK1000S"
+    },
+    {
+      "model_id": 1040,
+      "model_name": "PARTY"
+    },
+    {
+      "model_id": 1062,
+      "model_name": "SYMPHONY"
+    },
+    {
+      "model_id": 1068,
+      "model_name": "MI30 SAM"
+    },
+    {
+      "model_id": 1074,
+      "model_name": "MI LCD"
+    },
+    {
+      "model_id": 1056,
+      "model_name": "CS100A"
+    },
+    {
+      "model_id": 1057,
+      "model_name": "CARRYON"
+    },
+    {
+      "model_id": 1076,
+      "model_name": "Melobox"
+    },
+    {
+      "model_id": 1077,
+      "model_name": "QUAD 8"
+    },
+    {
+      "model_id": 1059,
+      "model_name": "KBEATBOX"
+    },
+    {
+      "model_id": 1090,
+      "model_name": "CS286 Pro"
+    },
+    {
+      "model_id": 1091,
+      "model_name": "KBEATBOX_CS252"
+    },
+    {
+      "model_id": 1067,
+      "model_name": "KBEATBOX_CS201PLUS"
+    },
+    {
+      "model_id": 1070,
+      "model_name": "KBEATBOX_CS201PLUS"
+    },
+    {
+      "model_id": 1088,
+      "model_name": "CS201FPLUS"
+    },
+    {
+      "model_id": 1089,
+      "model_name": "SUBWOOFER"
+    },
+    {
+      "model_id": 1796,
+      "model_name": "FLAC 36"
+    },
+    {
+      "model_id": 1800,
+      "model_name": "KAWAII"
+    },
+    {
+      "model_id": 1843,
+      "model_name": "KAWAII"
+    },
+    {
+      "model_id": 1798,
+      "model_name": "MiCar 3"
+    },
+    {
+      "model_id": 1839,
+      "model_name": "MiCar 3Live"
+    },
+    {
+      "model_id": 1808,
+      "model_name": "KAWAII"
+    },
+    {
+      "model_id": 1799,
+      "model_name": "CS448"
+    },
+    {
+      "model_id": 1824,
+      "model_name": "CS448NS"
+    },
+    {
+      "model_id": 1822,
+      "model_name": "CBY15G600"
+    },
+    {
+      "model_id": 1828,
+      "model_name": "ALPHA63"
+    },
+    {
+      "model_id": 1825,
+      "model_name": "CS447R_PLUS"
+    },
+    {
+      "model_id": 1807,
+      "model_name": "KAWAII-99N"
+    },
+    {
+      "model_id": 1803,
+      "model_name": "CS216X150"
+    },
+    {
+      "model_id": 1801,
+      "model_name": "CS406NEO"
+    },
+    {
+      "model_id": 1809,
+      "model_name": "CB41N650"
+    },
+    {
+      "model_id": 1815,
+      "model_name": "CB41N680"
+    },
+    {
+      "model_id": 1811,
+      "model_name": "CB393G"
+    },
+    {
+      "model_id": 1812,
+      "model_name": "CB303G"
+    },
+    {
+      "model_id": 1827,
+      "model_name": "CB303GV2"
+    },
+    {
+      "model_id": 1819,
+      "model_name": "TOP 430"
+    },
+    {
+      "model_id": 1826,
+      "model_name": "TOP 530"
+    },
+    {
+      "model_id": 1868,
+      "model_name": "TOP 430 MAX"
+    },
+    {
+      "model_id": 1867,
+      "model_name": "TOP 530 MAX"
+    },
+    {
+      "model_id": 1869,
+      "model_name": "CB4800PRO"
+    },
+    {
+      "model_id": 1870,
+      "model_name": "CS450PRO"
+    },
+    {
+      "model_id": 1837,
+      "model_name": "CS550SR"
+    },
+    {
+      "model_id": 1814,
+      "model_name": "CS216Z180"
+    },
+    {
+      "model_id": 1813,
+      "model_name": "KBEATBOX"
+    },
+    {
+      "model_id": 1829,
+      "model_name": "CB4800PLUS"
+    },
+    {
+      "model_id": 1824,
+      "model_name": "QUAD 64"
+    },
+    {
+      "model_id": 1841,
+      "model_name": "QUAD 64 PRO"
+    },
+    {
+      "model_id": 1831,
+      "model_name": "CS449"
+    },
+    {
+      "model_id": 1845,
+      "model_name": "366 Plus"
+    },
+    {
+      "model_id": 1850,
+      "model_name": "CS450 PRO"
+    },
+    {
+      "model_id": 1844,
+      "model_name": "CS450 PRO"
+    },
+    {
+      "model_id": 1852,
+      "model_name": "S30"
+    },
+    {
+      "model_id": 1853,
+      "model_name": "S60"
+    },
+    {
+      "model_id": 1865,
+      "model_name": "M90"
+    },
+    {
+      "model_id": 1872,
+      "model_name": "F30"
+    },
+    {
+      "model_id": 1873,
+      "model_name": "F60"
+    },
+    {
+      "model_id": 1874,
+      "model_name": "MELOS MINI"
+    },
+    {
+      "model_id": 1875,
+      "model_name": "QUAD 68 PRO V2"
+    },
+    {
+      "model_id": 1876,
+      "model_name": "ACNOS CS480PRO X2"
+    },
+    {
+      "model_id": 1877,
+      "model_name": "CPS-30s"
+    },
+    {
+      "model_id": 1878,
+      "model_name": "LAT NANO 68"
+    },
+    {
+      "model_id": 1879,
+      "model_name": "X50"
+    },
+    {
+      "model_id": 1880,
+      "model_name": "MI30G"
+    },
+    {
+      "model_id": 1832,
+      "model_name": "CS250 PRO"
+    },
+    {
+      "model_id": 1833,
+      "model_name": "CS160PRO"
+    },
+    {
+      "model_id": 1855,
+      "model_name": "CS186PLUS"
+    },
+    {
+      "model_id": 1834,
+      "model_name": "KB39neo"
+    },
+    {
+      "model_id": 1836,
+      "model_name": "FLAC 36"
+    },
+    {
+      "model_id": 2060,
+      "model_name": "CS446PROV2"
+    },
+    {
+      "model_id": 1851,
+      "model_name": "FLAC 36S"
+    }
+  ]
+}

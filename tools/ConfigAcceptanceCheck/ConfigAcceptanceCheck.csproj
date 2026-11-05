@@ -4,4 +4,5 @@
     <UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup><Reference Include="SoncaAudioInspector" HintPath="$(AudioAssemblyPath)" /></ItemGroup>
+  <ItemGroup><Compile Remove="obj\**\*.cs" /></ItemGroup>
 </Project>
