@@ -5,12 +5,13 @@
     [string]$KeyPath = "$env:USERPROFILE\.sonca-update\update-signing-key.pem",
     [string]$Previous,
     [string]$FeaturesFile,
-    [string]$Released
+    [string]$Released,
+    [string]$OutputRoot = 'artifacts'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) { throw 'Thiếu khóa ký. Cung cấp -KeyPath; script không tự sinh khóa.' }
-$art = & "$PSScriptRoot/new-artifact.ps1" -Description "Update feed $Version" -Slug 'update-feed'
+$art = & "$PSScriptRoot/new-artifact.ps1" -Description "Update feed $Version" -Slug 'update-feed' -OutputRoot $OutputRoot
 New-Item -ItemType Directory -Force "$art/logs" | Out-Null
 if (-not $PortableDir) {
     & "$PSScriptRoot/publish-portable.ps1" -Architecture x64 -OutputRoot $art -Description "Portable input for update $Version" *> "$art/logs/publish-portable.log"
