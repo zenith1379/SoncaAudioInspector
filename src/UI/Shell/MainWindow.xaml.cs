@@ -330,6 +330,7 @@ namespace SoncaAudioInspector
         public MainWindow()
         {
             InitializeComponent();
+            InitializeUpdateUi();
             StateChanged += (_, _) => ResizeHandles.Visibility = WindowState == WindowState.Normal
                 ? Visibility.Visible : Visibility.Collapsed;
             _ = SoncaBleManager.Instance.EnsureConnectedAsync();
@@ -360,6 +361,8 @@ namespace SoncaAudioInspector
             // Load configurations for models selection
             LoadCheckingConfig();
             Loaded += async (_, _) => await LoadSharedAudioConfigsAsync();
+            Loaded += async (_, _) => await CheckForUpdatesAsync();
+            Closed += (_, _) => _updateCancellation.Cancel();
             ComboModels.SelectedIndex = -1;
             _audioRoutingView.ClearModelSelection();
             // Audio Routing only: do not restore serial/QR state or query product models.

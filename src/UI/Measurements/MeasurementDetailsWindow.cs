@@ -26,6 +26,7 @@ public sealed class MeasurementDetailsWindow : Window
     public ImpedanceView? Impedance { get; private set; }
     private readonly TabControl _tabs = new();
     private readonly TabItem _impedanceTab = new() { Header = "Impedance · Ω" };
+    public VersionInfoView VersionInfo { get; } = new();
     public void SelectImpedance() => _tabs.SelectedItem = _impedanceTab;
     public bool IsDiagnosticRunning => _diagnosticCancellation != null || Impedance?.IsBusy == true;
     public bool IsMeasurementPending { get; set; }
@@ -56,6 +57,7 @@ public sealed class MeasurementDetailsWindow : Window
         tabs.Items.Add(new TabItem { Header = "EDT / T20 / T30", Content = _decays });
         tabs.Items.Add(new TabItem { Header = "Phase / Group delay", Content = _phase });
         tabs.Items.Add(_impedanceTab);
+        tabs.Items.Add(new TabItem { Header = "Phiên bản · " + AppVersion.Display, Content = VersionInfo });
         tabs.SelectionChanged += (_, _) =>
         {
             if (tabs.SelectedItem == _impedanceTab && Impedance == null && ImpedanceFactory != null)

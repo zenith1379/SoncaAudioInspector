@@ -11,6 +11,7 @@
   <ItemGroup><Compile Include="BleBluetoothAudioUiChecks.cs" /></ItemGroup>
   <ItemGroup><Compile Include="BleBluetoothAudioLiveChecks.cs" /></ItemGroup>
   <ItemGroup><Compile Include="SourceLayoutUiChecks.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="VersionInfoUiChecks.cs" /></ItemGroup>
   <ItemGroup><Compile Include="BriefP1UiChecks.cs" /></ItemGroup>
   <ItemGroup><Compile Include="BriefP2UiChecks.cs" /><Compile Include="BriefP3UiChecks.cs" /><Compile Include="BriefP4UiChecks.cs" /><Compile Include="BriefP5UiChecks.cs" /></ItemGroup>
   <ItemGroup><Resource Include="..\..\Assets\app_icon.ico" Link="Assets\app_icon.ico" /></ItemGroup>

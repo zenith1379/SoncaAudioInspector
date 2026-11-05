@@ -48,6 +48,7 @@ public partial class AudioRouting
         {
             _measurementDetailsWindow = new MeasurementDetailsWindow { Owner = Window.GetWindow(this), DiagnosticRunner = RunMechanicalDiagnosticAsync,
                 SignalDiagnosticRunner = RunSignalDiagnosticAsync, ImpedanceFactory = () => new ImpedanceView(RunImpedanceCaptureAsync, ImpedanceContext, GetUserDataDirectory()) };
+            if (Window.GetWindow(this) is MainWindow shell) _measurementDetailsWindow.VersionInfo.Bind(shell.UpdateState);
             _measurementDetailsWindow.Closed += (_, _) => _measurementDetailsWindow = null;
             _measurementDetailsWindow.Show();
         }

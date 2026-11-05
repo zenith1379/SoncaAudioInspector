@@ -16,7 +16,9 @@ foreach ($taskKind in @('Compile','Page','ApplicationDefinition')) {
         $taskPath = [IO.Path]::GetFullPath($taskItem.FullPath)
         if (-not (Test-Path -LiteralPath $taskPath -PathType Leaf)) { throw "Missing $taskKind item: $taskPath" }
         if (-not $taskSeen.Add($taskPath)) { throw "Duplicate $taskKind item: $taskPath" }
-        $taskRelative = [IO.Path]::GetRelativePath($taskRoot,$taskPath).Replace('\','/')
+        $taskPrefix = $taskRoot + [IO.Path]::DirectorySeparatorChar
+        if (-not $taskPath.StartsWith($taskPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Source outside repository: $taskPath" }
+        $taskRelative = $taskPath.Substring($taskPrefix.Length).Replace('\','/')
         if (-not $taskRelative.StartsWith('src/') -and $taskRelative -notin @('App.xaml','App.xaml.cs')) {
             throw "Unexpected application source outside src/: $taskRelative"
         }

@@ -38,7 +38,7 @@ internal static class Program
             catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
             return;
         }
-        if (args.Contains("--brief-phase=P1") || args.Contains("--brief-phase=P2") || args.Contains("--brief-phase=P3") || args.Contains("--brief-phase=P4") || args.Contains("--brief-phase=P5"))
+        if (args.Contains("--brief-phase=U1") || args.Contains("--brief-phase=P1") || args.Contains("--brief-phase=P2") || args.Contains("--brief-phase=P3") || args.Contains("--brief-phase=P4") || args.Contains("--brief-phase=P5"))
             System.Runtime.InteropServices.NativeLibrary.Load(Path.Combine(directory, "runtimes", "win-x64", "native", "libSkiaSharp.dll"));
         AssemblyLoadContext.Default.Resolving += (_, name) =>
         {
@@ -46,6 +46,25 @@ internal static class Program
             return File.Exists(candidate) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(candidate) : null;
         };
         var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(directory, "SoncaAudioInspector.dll"));
+        if (args.Contains("--update-version"))
+        {
+            // Validate the real header binding and render its actual AppVersion value without constructing MainWindow.
+            string xamlPath = args.Single(a => a.StartsWith("--version-xaml=")).Split('=', 2)[1];
+            string output = args.Single(a => a.StartsWith("--output=")).Split('=', 2)[1];
+            var document = System.Xml.Linq.XDocument.Load(xamlPath);
+            var label = document.Descendants().Single(e => (string?)e.Attribute("Name") == "TxtAppVersion");
+            if ((string?)label.Attribute("Text") != "{x:Static local:AppVersion.Display}") throw new Exception("Header is not bound to AppVersion.Display.");
+            string value = (string)assembly.GetType("SoncaAudioInspector.AppVersion")!.GetProperty("Display")!.GetValue(null)!;
+            if (value != "v1.0" || (string?)label.Attribute("Visibility") is "Collapsed" or "Hidden") throw new Exception("Version label missing or incorrect.");
+            var version = new TextBlock { Text = value, Foreground = Brushes.MediumSpringGreen, FontSize = 16 };
+            version.Measure(new Size(180, 32)); version.Arrange(new Rect(0, 0, 180, 32)); version.UpdateLayout();
+            var bitmap = new RenderTargetBitmap(180, 32, 96, 96, PixelFormats.Pbgra32); bitmap.Render(version);
+            Directory.CreateDirectory(output);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var stream = File.Create(Path.Combine(output, "version-header.png"))) encoder.Save(stream);
+            Console.WriteLine("PASS header XAML binding + isolated rendered v1.0 label; no MainWindow constructor/Loaded or dialog.");
+            return;
+        }
         var app = (Application)Activator.CreateInstance(assembly.GetType("SoncaAudioInspector.App")!)!;
         app.GetType().GetMethod("InitializeComponent")!.Invoke(app, null);
         var startupUri = app.StartupUri;
@@ -54,6 +73,13 @@ internal static class Program
         typeof(Application).GetField("_startupUri", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(app, null);
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (args.Contains("--brief-phase=U1"))
+        {
+            string output = args.Single(a => a.StartsWith("--output=")).Split('=', 2)[1];
+            try { VersionInfoUiChecks.Run(assembly, Path.GetFullPath(output)); }
+            catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
+            app.Shutdown(); return;
+        }
         if (args.Contains("--brief-phase=P1"))
         {
             string output = args.FirstOrDefault(a => a.StartsWith("--output="))?.Split('=', 2)[1]

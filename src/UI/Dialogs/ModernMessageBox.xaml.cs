@@ -86,6 +86,16 @@ namespace SoncaAudioInspector
             }
         }
 
+        public static bool ShowConfirmation(Window owner, string message, string title, string yes, string no)
+        {
+            var dialog = new ModernMessageBox(message, title, MessageBoxType.Confirmation);
+            dialog.BtnYes.Content = yes;
+            dialog.BtnNo.Content = no;
+            if (owner.IsVisible) dialog.Owner = owner;
+            dialog.ShowDialog();
+            return dialog.Accepted;
+        }
+
         public static bool Show(Window owner, string message, string title, MessageBoxType type)
         {
             var msgBox = new ModernMessageBox(message, title, type);

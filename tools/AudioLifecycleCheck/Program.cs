@@ -6,6 +6,8 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using SoncaAudioInspector;
 
+if (args.Contains("--update-logic")) { try { await UpdateLogicChecks.Run(args); } catch (Exception ex) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; } return; }
+
 // Endpoint settings are read-only. Explicit acoustic test modes emit test tones.
 // Run baseline and fixed assemblies in separate processes with the same arguments.
 string Option(string key, string fallback) => args.FirstOrDefault(a => a.StartsWith(key + "="))?.Split('=', 2)[1] ?? fallback;

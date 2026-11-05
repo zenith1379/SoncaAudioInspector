@@ -10,10 +10,10 @@ public static class SoncaBuildIdentity
     private static readonly Lazy<string> CurrentBuild = new(() =>
     {
         string path = typeof(SoncaBuildIdentity).Assembly.Location;
-        if (string.IsNullOrEmpty(path)) return "APP " + Assembly.GetExecutingAssembly().GetName().Version;
+        if (string.IsNullOrEmpty(path)) return "APP " + AppVersion.Current.ToString(3);
         using var file = File.OpenRead(path);
         string hash = Convert.ToHexString(SHA256.HashData(file));
-        return $"APP {File.GetLastWriteTime(path):yyyy-MM-dd HH:mm} · {hash[..10]}";
+        return $"APP {AppVersion.Display} Â· {File.GetLastWriteTime(path):yyyy-MM-dd HH:mm} · {hash[..10]}";
     });
     public static string Current => CurrentBuild.Value;
     public static string Firmware(SoncaBleReply reply)
